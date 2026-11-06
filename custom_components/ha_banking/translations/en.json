@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Enable Banking application",
-        "description": "Create an application in the [Enable Banking control panel](https://enablebanking.com/cp/applications) (Production, restricted mode is free for your own accounts). Register the same redirect URL there, then link your accounts in the control panel.",
+        "description": "Create an application in the [Enable Banking control panel]({control_panel_url}) (Production, restricted mode is free for your own accounts). Register the same redirect URL there, then link your accounts in the control panel.",
         "data": {
           "application_id": "Application ID",
           "private_key": "Private key (PEM)",

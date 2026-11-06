@@ -38,6 +38,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 CONF_CALLBACK_URL = "callback_url"
+CONTROL_PANEL_URL = "https://enablebanking.com/cp/applications"
 
 
 class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -101,6 +102,7 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            description_placeholders={"control_panel_url": CONTROL_PANEL_URL},
             errors=errors,
         )
 

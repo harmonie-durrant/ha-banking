@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Application Enable Banking",
-        "description": "Créez une application dans le [panneau Enable Banking](https://enablebanking.com/cp/applications) (Production, le mode restreint est gratuit pour vos propres comptes). Enregistrez-y la même URL de redirection, puis liez vos comptes dans le panneau.",
+        "description": "Créez une application dans le [panneau Enable Banking]({control_panel_url}) (Production, le mode restreint est gratuit pour vos propres comptes). Enregistrez-y la même URL de redirection, puis liez vos comptes dans le panneau.",
         "data": {
           "application_id": "ID de l'application",
           "private_key": "Clé privée (PEM)",
