@@ -1,0 +1,10 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HA Banking",
+        "description": "Connectez un compte bancaire à Home Assistant."
+      }
+    }
+  }
+}

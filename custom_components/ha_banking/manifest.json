@@ -1,0 +1,12 @@
+{
+  "domain": "ha_banking",
+  "name": "HA Banking",
+  "codeowners": ["@harmonie-durrant"],
+  "config_flow": true,
+  "documentation": "https://github.com/harmonie-durrant/ha-banking",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/harmonie-durrant/ha-banking/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
