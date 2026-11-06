@@ -2,15 +2,17 @@
 
 A Home Assistant custom integration for tracking your bank account balance.
 
-> Work in progress — not yet functional.
+> Early stage — tracks the main balance of your accounts.
+
+Requires Home Assistant **2026.11.0** or later.
 
 ## Installation
 
-### HACS (custom repository)
+### Marketplace (custom repository)
 
-1. In Home Assistant, open **HACS** → ⋮ → **Custom repositories**.
+1. In Home Assistant, go to **Settings → Marketplace** → ⋮ → **Custom repositories**.
 2. Add `https://github.com/harmonie-durrant/ha-banking` with category **Integration**.
-3. Install **HA Banking** and restart Home Assistant.
+3. Find **HA Banking** in the Marketplace, install it and restart Home Assistant.
 4. Go to **Settings → Devices & services → Add integration** and search for **HA Banking**.
 
 ### Manual
