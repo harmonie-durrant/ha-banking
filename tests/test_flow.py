@@ -1,53 +1,321 @@
+"""Tests for the HA Banking config flow, coordinator and sensors."""
+
+from datetime import timedelta
+from typing import Any
+
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from homeassistant import config_entries
-from homeassistant.data_entry_flow import FlowResultType
 import jwt
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from homeassistant import config_entries
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.util import dt as dt_util
+
+DOMAIN = "ha_banking"
 API = "https://api.enablebanking.com"
-
-def pem():
-    k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    return k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
-
-async def test_full_flow(hass, aioclient_mock):
-    aioclient_mock.get(f"{API}/aspsps", json={"aspsps": [{"name": "Boursorama", "country": "FR", "maximum_consent_validity": 15552000}]})
-    aioclient_mock.post(f"{API}/auth", json={"url": "https://bank.example/auth", "authorization_id": "a"})
-    aioclient_mock.post(f"{API}/sessions", json={"session_id": "s1", "access": {"valid_until": "2027-05-01T00:00:00+00:00"},
-        "accounts": [{"uid": "u1", "identification_hash": "h1", "name": "Compte courant", "account_id": {"iban": "FR7612345678901234"}, "currency": "EUR"}]})
-    aioclient_mock.get(f"{API}/accounts/u1/balances", json={"balances": [
+BALANCES_URL = f"{API}/accounts/u1/balances"
+BALANCES = {
+    "balances": [
         {"balance_type": "XPCD", "balance_amount": {"amount": "99.00", "currency": "EUR"}},
-        {"balance_type": "CLBD", "balance_amount": {"amount": "1234.56", "currency": "EUR"}, "reference_date": "2026-11-05"}]})
+        {
+            "balance_type": "CLBD",
+            "balance_amount": {"amount": "1234.56", "currency": "EUR"},
+            "reference_date": "2026-11-05",
+        },
+    ]
+}
+SESSION = {
+    "session_id": "s1",
+    "access": {"valid_until": "2027-05-01T00:00:00+00:00"},
+    "accounts": [
+        {
+            "uid": "u1",
+            "identification_hash": "h1",
+            "name": "Compte courant",
+            "account_id": {"iban": "FR7612345678901234"},
+            "currency": "EUR",
+        }
+    ],
+}
+BALANCE_ENTITY = "sensor.compte_courant_balance"
+EXPIRY_ENTITY = "sensor.compte_courant_access_expires"
 
-    r = await hass.config_entries.flow.async_init("ha_banking", context={"source": config_entries.SOURCE_USER})
+
+def make_pem() -> str:
+    """Generate a throwaway RSA private key."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+
+
+PEM = make_pem()
+
+
+def entry_data(valid_until: str = "2027-05-01T00:00:00+00:00") -> dict[str, Any]:
+    """Config entry data as created by the config flow."""
+    return {
+        "application_id": "app",
+        "private_key": PEM,
+        "redirect_url": "https://enablebanking.com/",
+        "country": "FR",
+        "aspsp": "Boursorama",
+        "session_id": "s1",
+        "accounts": [
+            {
+                "uid": "u1",
+                "id": "h1",
+                "name": "Compte courant",
+                "iban": "FR7612345678901234",
+                "currency": "EUR",
+            }
+        ],
+        "valid_until": valid_until,
+    }
+
+
+def add_entry(hass: HomeAssistant, **kwargs: Any) -> MockConfigEntry:
+    """Add a mock config entry."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Boursorama", unique_id="h1", data=entry_data(**kwargs)
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+def cache(entry: MockConfigEntry, age: timedelta, amount: str = "500.00") -> dict:
+    """Storage content for cached balances fetched `age` ago."""
+    return {
+        "version": 1,
+        "minor_version": 1,
+        "key": f"{DOMAIN}.{entry.entry_id}",
+        "data": {
+            "fetched_at": (dt_util.utcnow() - age).isoformat(),
+            "balances": {
+                "h1": {
+                    "amount": amount,
+                    "currency": "EUR",
+                    "balance_type": "CLBD",
+                    "reference_date": "2026-11-01",
+                }
+            },
+        },
+    }
+
+
+def balance_calls(aioclient_mock) -> int:
+    """Number of balance requests sent to the bank."""
+    return sum(1 for call in aioclient_mock.mock_calls if str(call[1]) == BALANCES_URL)
+
+
+def mock_reauth_api(aioclient_mock, session: dict[str, Any]) -> None:
+    """Mock the endpoints used by the re-authentication flow."""
+    aioclient_mock.get(
+        f"{API}/aspsps",
+        json={"aspsps": [{"name": "Boursorama", "country": "FR", "maximum_consent_validity": 15552000}]},
+    )
+    aioclient_mock.post(f"{API}/auth", json={"url": "https://bank.example/auth"})
+    aioclient_mock.post(f"{API}/sessions", json=session)
+
+
+async def finish_reauth(hass: HomeAssistant, flow_id: str) -> dict[str, Any]:
+    """Go through reauth_confirm and authorize with a valid callback URL."""
+    result = await hass.config_entries.flow.async_configure(flow_id, {})
+    assert result["step_id"] == "authorize", result
+    state = hass.config_entries.flow._progress[flow_id]._state
+    return await hass.config_entries.flow.async_configure(
+        flow_id, {"callback_url": f"https://enablebanking.com/?state={state}&code=c"}
+    )
+
+
+async def test_full_flow(hass: HomeAssistant, aioclient_mock, hass_storage) -> None:
+    """Set up from scratch and get a balance sensor."""
+    aioclient_mock.get(
+        f"{API}/aspsps",
+        json={"aspsps": [{"name": "Boursorama", "country": "FR", "maximum_consent_validity": 15552000}]},
+    )
+    aioclient_mock.post(f"{API}/auth", json={"url": "https://bank.example/auth", "authorization_id": "a"})
+    aioclient_mock.post(f"{API}/sessions", json=SESSION)
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     assert r["type"] is FlowResultType.FORM and r["step_id"] == "user"
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {"application_id": "app", "private_key": pem(), "redirect_url": "https://enablebanking.com/", "country": "fr"})
+    r = await hass.config_entries.flow.async_configure(
+        r["flow_id"],
+        {"application_id": "app", "private_key": PEM, "redirect_url": "https://enablebanking.com/", "country": "fr"},
+    )
     assert r["step_id"] == "bank", r
     r = await hass.config_entries.flow.async_configure(r["flow_id"], {"aspsp": "Boursorama"})
     assert r["step_id"] == "authorize", r
     flow = hass.config_entries.flow._progress[r["flow_id"]]
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {"callback_url": "https://enablebanking.com/?state=bad&code=c"})
+    r = await hass.config_entries.flow.async_configure(
+        r["flow_id"], {"callback_url": "https://enablebanking.com/?state=bad&code=c"}
+    )
     assert r["errors"] == {"base": "state_mismatch"}
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {"callback_url": f"https://enablebanking.com/?state={flow._state}&code=c"})
+    r = await hass.config_entries.flow.async_configure(
+        r["flow_id"], {"callback_url": f"https://enablebanking.com/?state={flow._state}&code=c"}
+    )
     assert r["type"] is FlowResultType.CREATE_ENTRY, r
     assert r["title"] == "Boursorama"
     await hass.async_block_till_done()
 
-    # JWT header/claims
-    _, url, body, headers = aioclient_mock.mock_calls[0]
+    _, _, _, headers = aioclient_mock.mock_calls[0]
     tok = headers["Authorization"].split()[1]
     assert jwt.get_unverified_header(tok)["kid"] == "app"
     assert jwt.decode(tok, options={"verify_signature": False})["aud"] == "api.enablebanking.com"
 
-    states = hass.states.async_all("sensor")
-    assert len(states) == 1, states
-    s = states[0]
-    print(s.entity_id, s.state, s.attributes)
-    assert s.state == "1234.56"
-    assert s.attributes["unit_of_measurement"] == "EUR"
-    assert s.attributes["balance_type"] == "CLBD"
+    state = hass.states.get(BALANCE_ENTITY)
+    assert state.state == "1234.56"
+    assert state.attributes["unit_of_measurement"] == "EUR"
+    assert state.attributes["balance_type"] == "CLBD"
+    assert hass.states.get(EXPIRY_ENTITY).state == "2027-05-01T00:00:00+00:00"
 
-async def test_bad_key(hass):
-    r = await hass.config_entries.flow.async_init("ha_banking", context={"source": config_entries.SOURCE_USER})
-    r = await hass.config_entries.flow.async_configure(r["flow_id"], {"application_id": "app", "private_key": "nope", "redirect_url": "https://x/", "country": "FR"})
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    stored = hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"]
+    assert stored["balances"]["h1"]["amount"] == "1234.56"
+
+
+async def test_bad_key(hass: HomeAssistant) -> None:
+    """An invalid private key is reported as invalid_auth."""
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    r = await hass.config_entries.flow.async_configure(
+        r["flow_id"], {"application_id": "app", "private_key": "nope", "redirect_url": "https://x/", "country": "FR"}
+    )
     assert r["errors"] == {"base": "invalid_auth"}
+
+
+async def test_restart_uses_fresh_cache(hass: HomeAssistant, aioclient_mock, hass_storage) -> None:
+    """A restart within the refresh interval does not call the bank."""
+    entry = add_entry(hass)
+    hass_storage[f"{DOMAIN}.{entry.entry_id}"] = cache(entry, timedelta(hours=1))
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert balance_calls(aioclient_mock) == 0
+    assert hass.states.get(BALANCE_ENTITY).state == "500.00"
+
+
+async def test_restart_with_stale_cache_fetches(hass: HomeAssistant, aioclient_mock, hass_storage) -> None:
+    """An old cache is refreshed from the bank."""
+    entry = add_entry(hass)
+    hass_storage[f"{DOMAIN}.{entry.entry_id}"] = cache(entry, timedelta(hours=7))
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert balance_calls(aioclient_mock) == 1
+    assert hass.states.get(BALANCE_ENTITY).state == "1234.56"
+
+
+async def test_rate_limit_keeps_last_balance(
+    hass: HomeAssistant, aioclient_mock, hass_storage, caplog: pytest.LogCaptureFixture
+) -> None:
+    """When the bank rate-limits us, the last known balance stays available."""
+    entry = add_entry(hass)
+    hass_storage[f"{DOMAIN}.{entry.entry_id}"] = cache(entry, timedelta(hours=7))
+    aioclient_mock.get(
+        BALANCES_URL,
+        status=429,
+        json={"code": 429, "error": "ASPSP_RATE_LIMIT_EXCEEDED", "message": "ASPSP Rate limit exceeded"},
+    )
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(BALANCE_ENTITY).state == "500.00"
+    assert "rate limit" in caplog.text
+
+
+async def test_rate_limit_without_cache_retries(hass: HomeAssistant, aioclient_mock) -> None:
+    """Without any cached balance, a rate limit makes setup retry later."""
+    entry = add_entry(hass)
+    aioclient_mock.get(BALANCES_URL, status=429, text="Too Many Requests")
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_expired_session_starts_reauth(hass: HomeAssistant, aioclient_mock) -> None:
+    """An expired session error triggers the re-authentication flow."""
+    entry = add_entry(hass)
+    aioclient_mock.get(
+        BALANCES_URL,
+        status=401,
+        json={"code": 401, "error": "EXPIRED_SESSION", "message": "Session is expired"},
+    )
+
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert [f["context"]["source"] for f in flows] == [config_entries.SOURCE_REAUTH]
+
+
+async def test_expiring_soon_prompts_reauth_but_keeps_working(
+    hass: HomeAssistant, aioclient_mock
+) -> None:
+    """Within a week of expiry, the user is prompted while data keeps flowing."""
+    soon = (dt_util.utcnow() + timedelta(days=3)).isoformat()
+    entry = add_entry(hass, valid_until=soon)
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(BALANCE_ENTITY).state == "1234.56"
+    flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert [f["context"]["source"] for f in flows] == [config_entries.SOURCE_REAUTH]
+
+
+async def test_reauth_flow(hass: HomeAssistant, aioclient_mock) -> None:
+    """Re-authorizing updates the session and keeps the entry."""
+    entry = add_entry(hass, valid_until="2020-01-01T00:00:00+00:00")
+    new_session = {
+        **SESSION,
+        "session_id": "s2",
+        "access": {"valid_until": "2027-06-01T00:00:00+00:00"},
+        "accounts": [{**SESSION["accounts"][0], "uid": "u2"}],
+    }
+    mock_reauth_api(aioclient_mock, new_session)
+    aioclient_mock.get(f"{API}/accounts/u2/balances", json=BALANCES)
+
+    result = await entry.start_reauth_flow(hass)
+    assert result["step_id"] == "reauth_confirm"
+    result = await finish_reauth(hass, result["flow_id"])
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["session_id"] == "s2"
+    assert entry.data["accounts"][0]["uid"] == "u2"
+    assert entry.data["valid_until"] == "2027-06-01T00:00:00+00:00"
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(BALANCE_ENTITY).state == "1234.56"
+
+
+async def test_reauth_wrong_accounts(hass: HomeAssistant, aioclient_mock) -> None:
+    """Authorizing a different customer's accounts is refused."""
+    entry = add_entry(hass)
+    other = {**SESSION, "accounts": [{**SESSION["accounts"][0], "identification_hash": "other"}]}
+    mock_reauth_api(aioclient_mock, other)
+
+    result = await entry.start_reauth_flow(hass)
+    result = await finish_reauth(hass, result["flow_id"])
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "wrong_accounts"
+    assert entry.data["session_id"] == "s1"

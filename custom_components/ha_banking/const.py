@@ -24,3 +24,13 @@ UPDATE_INTERVAL: Final = timedelta(hours=6)
 
 # Preferred order when picking the "main" balance of an account.
 BALANCE_TYPE_PRIORITY: Final = ("CLBD", "ITBD", "XPCD", "ITAV", "CLAV", "OPBD", "OPAV")
+
+# A cached result younger than this is reused instead of calling the bank
+# (e.g. after a Home Assistant restart). Slightly below UPDATE_INTERVAL so
+# scheduler jitter never skips a planned refresh.
+CACHE_MAX_AGE: Final = UPDATE_INTERVAL - timedelta(minutes=10)
+
+# Ask the user to re-authorize this long before bank access expires.
+REAUTH_BEFORE_EXPIRY: Final = timedelta(days=7)
+
+STORAGE_VERSION: Final = 1

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import json
 import time
 from typing import Any
 
@@ -19,7 +20,45 @@ class EnableBankingError(Exception):
 
 
 class EnableBankingAuthError(EnableBankingError):
-    """Credentials or session rejected by Enable Banking."""
+    """Application credentials (application ID / private key) rejected."""
+
+
+class EnableBankingSessionError(EnableBankingError):
+    """Bank session expired, closed or revoked: the user must authorize again."""
+
+
+class EnableBankingRateLimitError(EnableBankingError):
+    """The bank (ASPSP) rate limit was exceeded."""
+
+
+SESSION_ERROR_CODES = frozenset(
+    {
+        "CLOSED_SESSION",
+        "EXPIRED_SESSION",
+        "REVOKED_SESSION",
+        "SESSION_DOES_NOT_EXIST",
+        "WRONG_SESSION_STATUS",
+    }
+)
+
+
+def _error_from_response(status: int, text: str) -> EnableBankingError:
+    """Map an HTTP error response to the matching exception."""
+    code: str | None = None
+    try:
+        body = json.loads(text)
+    except ValueError:
+        body = None
+    if isinstance(body, dict) and isinstance(body.get("error"), str):
+        code = body["error"]
+    message = f"{status} {code or ''}: {text}"
+    if status == 429 or code == "ASPSP_RATE_LIMIT_EXCEEDED":
+        return EnableBankingRateLimitError(message)
+    if code in SESSION_ERROR_CODES:
+        return EnableBankingSessionError(message)
+    if status in (401, 403):
+        return EnableBankingAuthError(message)
+    return EnableBankingError(message)
 
 
 class EnableBankingClient:
@@ -74,12 +113,9 @@ class EnableBankingClient:
                 params=params,
                 json=json,
             ) as resp:
-                if resp.status in (401, 403):
-                    raise EnableBankingAuthError(
-                        f"{resp.status}: {await resp.text()}"
-                    )
                 if resp.status >= 400:
-                    raise EnableBankingError(f"{resp.status}: {await resp.text()}")
+                    text = await resp.text()
+                    raise _error_from_response(resp.status, text)
                 return await resp.json()
         except (ClientError, TimeoutError) as err:
             raise EnableBankingError(f"Connection error: {err}") from err

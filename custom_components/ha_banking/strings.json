@@ -28,6 +28,10 @@
         "data": {
           "callback_url": "Redirected URL"
         }
+      },
+      "reauth_confirm": {
+        "title": "Renew bank access",
+        "description": "Access to your {bank} accounts expires (or expired) on {valid_until}. Submit to get a new authorization link and approve access at your bank again. Your sensors and history are kept."
       }
     },
     "error": {
@@ -42,13 +46,19 @@
     },
     "abort": {
       "already_configured": "These accounts are already configured.",
-      "no_accounts": "The bank did not return any accessible account."
+      "no_accounts": "The bank did not return any accessible account.",
+      "reauth_successful": "Bank access renewed.",
+      "wrong_accounts": "The authorized accounts don't match this entry. Log in with the same bank customer as before.",
+      "bank_not_found": "This bank is no longer available on Enable Banking."
     }
   },
   "entity": {
     "sensor": {
       "balance": {
         "name": "Balance"
+      },
+      "access_expires": {
+        "name": "Access expires"
       }
     }
   }

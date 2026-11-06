@@ -28,6 +28,10 @@
         "data": {
           "callback_url": "URL de redirection obtenue"
         }
+      },
+      "reauth_confirm": {
+        "title": "Renouveler l'accès bancaire",
+        "description": "L'accès à vos comptes {bank} expire (ou a expiré) le {valid_until}. Validez pour obtenir un nouveau lien d'autorisation et approuver à nouveau l'accès auprès de votre banque. Vos capteurs et leur historique sont conservés."
       }
     },
     "error": {
@@ -42,13 +46,19 @@
     },
     "abort": {
       "already_configured": "Ces comptes sont déjà configurés.",
-      "no_accounts": "La banque n'a renvoyé aucun compte accessible."
+      "no_accounts": "La banque n'a renvoyé aucun compte accessible.",
+      "reauth_successful": "Accès bancaire renouvelé.",
+      "wrong_accounts": "Les comptes autorisés ne correspondent pas à cette entrée. Connectez-vous avec le même client bancaire qu'auparavant.",
+      "bank_not_found": "Cette banque n'est plus disponible sur Enable Banking."
     }
   },
   "entity": {
     "sensor": {
       "balance": {
         "name": "Solde"
+      },
+      "access_expires": {
+        "name": "Expiration de l'accès"
       }
     }
   }

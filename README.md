@@ -40,11 +40,14 @@ One device per account is created, each with a **Balance** sensor.
 ### Notes
 
 - Balances are refreshed every 6 hours: banks usually allow only ~4 background requests per day.
-  Each Home Assistant restart also triggers one refresh.
+  The last balances are saved, so restarting or reloading Home Assistant doesn't call the bank
+  again if the data is less than 6 hours old. If the bank's rate limit is hit anyway, the
+  last known balance stays displayed until the next refresh.
 - The "main" balance is picked in this order: `CLBD` (booked), `ITBD`, `XPCD`, `ITAV`, `CLAV`, `OPBD`, `OPAV`.
-  The sensor's `balance_type` attribute shows which one is used.
-- Bank access expires (typically 90–180 days). Re-authentication is not implemented yet:
-  delete and re-add the integration when the sensor becomes unavailable.
+  The sensor's `balance_type` attribute shows which one is used, and `fetched_at` when it was retrieved.
+- Bank access expires (typically 90–180 days). Each account has an **Access expires** sensor.
+  A week before expiry, Home Assistant asks you to re-authenticate (**Settings → Devices & services**):
+  approve access at your bank again and paste the URL back. Your entities and history are kept.
 
 ## Development
 

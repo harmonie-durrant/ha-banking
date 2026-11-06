@@ -1,7 +1,8 @@
-"""Balance sensors for HA Banking."""
+"""Sensors for HA Banking."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -10,13 +11,19 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_ACCOUNTS, CONF_ASPSP, DOMAIN
-from .coordinator import HaBankingConfigEntry, HaBankingCoordinator
+from .coordinator import (
+    AccountBalance,
+    HaBankingConfigEntry,
+    HaBankingCoordinator,
+    access_valid_until,
+)
 
 
 async def async_setup_entry(
@@ -24,30 +31,31 @@ async def async_setup_entry(
     entry: HaBankingConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up balance sensors, one per account."""
+    """Set up sensors, one device per account."""
     coordinator = entry.runtime_data
-    async_add_entities(
-        BalanceSensor(coordinator, account) for account in entry.data[CONF_ACCOUNTS]
-    )
+    entities: list[SensorEntity] = []
+    for account in entry.data[CONF_ACCOUNTS]:
+        entities.append(BalanceSensor(coordinator, account))
+        entities.append(AccessExpirySensor(coordinator, account))
+    async_add_entities(entities)
 
 
-class BalanceSensor(CoordinatorEntity[HaBankingCoordinator], SensorEntity):
-    """Main balance of a bank account."""
+class HaBankingEntity(CoordinatorEntity[HaBankingCoordinator]):
+    """Base entity attached to a bank account device."""
 
     _attr_has_entity_name = True
-    _attr_translation_key = "balance"
-    _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_state_class = SensorStateClass.TOTAL
 
-    def __init__(self, coordinator: HaBankingCoordinator, account: dict[str, Any]) -> None:
-        """Initialize the sensor."""
+    def __init__(
+        self, coordinator: HaBankingCoordinator, account: dict[str, Any], key: str
+    ) -> None:
+        """Initialize the entity."""
         super().__init__(coordinator)
         self._account_id: str = account["id"]
         bank = coordinator.config_entry.data[CONF_ASPSP]
         iban: str | None = account.get("iban")
         name = account.get("name") or (f"{bank} …{iban[-4:]}" if iban else bank)
-        self._attr_unique_id = f"{self._account_id}_balance"
-        self._attr_native_unit_of_measurement = account.get("currency")
+        self._attr_translation_key = key
+        self._attr_unique_id = f"{self._account_id}_{key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._account_id)},
             name=name,
@@ -56,8 +64,20 @@ class BalanceSensor(CoordinatorEntity[HaBankingCoordinator], SensorEntity):
             entry_type=DeviceEntryType.SERVICE,
         )
 
+
+class BalanceSensor(HaBankingEntity, SensorEntity):
+    """Main balance of a bank account."""
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+
+    def __init__(self, coordinator: HaBankingCoordinator, account: dict[str, Any]) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, account, "balance")
+        self._attr_native_unit_of_measurement = account.get("currency")
+
     @property
-    def _balance(self):
+    def _balance(self) -> AccountBalance | None:
         return (self.coordinator.data or {}).get(self._account_id)
 
     @property
@@ -79,10 +99,33 @@ class BalanceSensor(CoordinatorEntity[HaBankingCoordinator], SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Expose which balance type was used."""
+        """Expose which balance type was used and when it was fetched."""
         if not self._balance:
             return None
+        last_fetch = self.coordinator.last_fetch
         return {
             "balance_type": self._balance.balance_type,
             "reference_date": self._balance.reference_date,
+            "fetched_at": last_fetch.isoformat() if last_fetch else None,
         }
+
+
+class AccessExpirySensor(HaBankingEntity, SensorEntity):
+    """When the bank access (consent) expires and must be renewed."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: HaBankingCoordinator, account: dict[str, Any]) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, account, "access_expires")
+
+    @property
+    def available(self) -> bool:
+        """Stay available even when the bank cannot be reached."""
+        return True
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the access expiry date."""
+        return access_valid_until(self.coordinator.config_entry)
