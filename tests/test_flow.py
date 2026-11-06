@@ -97,13 +97,18 @@ def cache(entry: MockConfigEntry, age: timedelta, amount: str = "500.00") -> dic
         "key": f"{DOMAIN}.{entry.entry_id}",
         "data": {
             "fetched_at": (dt_util.utcnow() - age).isoformat(),
-            "balances": {
-                "h1": {
-                    "amount": amount,
-                    "currency": "EUR",
-                    "balance_type": "CLBD",
-                    "reference_date": "2026-11-01",
-                }
+            "accounts": {
+                "h1": [
+                    {
+                        "balance_type": "CLBD",
+                        "balance_amount": {"amount": amount, "currency": "EUR"},
+                        "reference_date": "2026-11-01",
+                    },
+                    {
+                        "balance_type": "XPCD",
+                        "balance_amount": {"amount": "42.00", "currency": "EUR"},
+                    },
+                ]
             },
         },
     }
@@ -178,7 +183,7 @@ async def test_full_flow(hass: HomeAssistant, aioclient_mock, hass_storage) -> N
 
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     stored = hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"]
-    assert stored["balances"]["h1"]["amount"] == "1234.56"
+    assert stored["accounts"]["h1"] == BALANCES["balances"]
 
 
 async def test_bad_key(hass: HomeAssistant) -> None:
@@ -422,3 +427,85 @@ async def test_skipped_accounts_are_reported(
     assert "does not allow querying: LEP" in caplog.text
     assert "FR7600000000000003" not in caplog.text
     assert [a["id"] for a in r["data"]["accounts"]] == ["h1"]
+
+
+async def test_old_cache_format_is_ignored(hass: HomeAssistant, aioclient_mock, hass_storage) -> None:
+    """A cache from v0.2 (picked balances only) triggers one bank fetch."""
+    entry = add_entry(hass)
+    hass_storage[f"{DOMAIN}.{entry.entry_id}"] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": f"{DOMAIN}.{entry.entry_id}",
+        "data": {
+            "fetched_at": dt_util.utcnow().isoformat(),
+            "balances": {"h1": {"amount": "1.00", "currency": "EUR", "balance_type": "CLBD", "reference_date": None}},
+        },
+    }
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert balance_calls(aioclient_mock) == 1
+    assert hass.states.get(BALANCE_ENTITY).state == "1234.56"
+
+
+async def test_options_change_balance_type_without_bank_call(
+    hass: HomeAssistant, aioclient_mock, hass_storage
+) -> None:
+    """Choosing another balance type applies from cache, without calling the bank."""
+    entry = add_entry(hass)
+    hass_storage[f"{DOMAIN}.{entry.entry_id}"] = cache(entry, timedelta(hours=1))
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    state = hass.states.get(BALANCE_ENTITY)
+    assert state.state == "500.00"
+    assert state.attributes["available_balance_types"] == ["CLBD", "XPCD"]
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "init"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"update_interval": 12, "balance_type": "XPCD"}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options == {"update_interval": 12, "balance_type": "XPCD"}
+    assert entry.runtime_data.update_interval == timedelta(hours=12)
+    assert hass.states.get(BALANCE_ENTITY).state == "42.00"
+    assert balance_calls(aioclient_mock) == 0
+
+
+async def test_preferred_type_missing_falls_back(hass: HomeAssistant, aioclient_mock) -> None:
+    """If the bank doesn't return the chosen type, the automatic choice is used."""
+    entry = add_entry(hass)
+    hass.config_entries.async_update_entry(entry, options={"update_interval": 6, "balance_type": "ITAV"})
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(BALANCE_ENTITY).state == "1234.56"
+
+
+async def test_refresh_button_bypasses_cache(hass: HomeAssistant, aioclient_mock, hass_storage) -> None:
+    """Pressing Refresh calls the bank even with a fresh cache."""
+    entry = add_entry(hass)
+    hass_storage[f"{DOMAIN}.{entry.entry_id}"] = cache(entry, timedelta(minutes=5))
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert balance_calls(aioclient_mock) == 0
+
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.compte_courant_refresh"}, blocking=True
+    )
+    await hass.async_block_till_done()
+
+    assert balance_calls(aioclient_mock) == 1
+    assert hass.states.get(BALANCE_ENTITY).state == "1234.56"
+
+    # A normal refresh right after still uses the new cache.
+    await entry.runtime_data.async_refresh()
+    assert balance_calls(aioclient_mock) == 1

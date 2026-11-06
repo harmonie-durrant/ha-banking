@@ -13,17 +13,16 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_ACCOUNTS, CONF_ASPSP, DOMAIN
+from .const import CONF_ACCOUNTS
 from .coordinator import (
     AccountBalance,
     HaBankingConfigEntry,
     HaBankingCoordinator,
     access_valid_until,
 )
+from .entity import HaBankingEntity
 
 
 async def async_setup_entry(
@@ -38,31 +37,6 @@ async def async_setup_entry(
         entities.append(BalanceSensor(coordinator, account))
         entities.append(AccessExpirySensor(coordinator, account))
     async_add_entities(entities)
-
-
-class HaBankingEntity(CoordinatorEntity[HaBankingCoordinator]):
-    """Base entity attached to a bank account device."""
-
-    _attr_has_entity_name = True
-
-    def __init__(
-        self, coordinator: HaBankingCoordinator, account: dict[str, Any], key: str
-    ) -> None:
-        """Initialize the entity."""
-        super().__init__(coordinator)
-        self._account_id: str = account["id"]
-        bank = coordinator.config_entry.data[CONF_ASPSP]
-        iban: str | None = account.get("iban")
-        name = account.get("name") or (f"{bank} …{iban[-4:]}" if iban else bank)
-        self._attr_translation_key = key
-        self._attr_unique_id = f"{self._account_id}_{key}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, self._account_id)},
-            name=name,
-            manufacturer=bank,
-            model=iban,
-            entry_type=DeviceEntryType.SERVICE,
-        )
 
 
 class BalanceSensor(HaBankingEntity, SensorEntity):
@@ -107,6 +81,10 @@ class BalanceSensor(HaBankingEntity, SensorEntity):
             "balance_type": self._balance.balance_type,
             "reference_date": self._balance.reference_date,
             "fetched_at": last_fetch.isoformat() if last_fetch else None,
+            "available_balance_types": [
+                b.get("balance_type")
+                for b in self.coordinator.raw_balances.get(self._account_id, [])
+            ],
         }
 
 

@@ -35,16 +35,28 @@ in **restricted production** mode (only accounts you link yourself).
 5. Pick your bank, open the authorization link, approve access at your bank, then paste the
    full URL you land on back into Home Assistant.
 
-One device per account is created, each with a **Balance** sensor.
+One device per account is created, each with a **Balance** sensor, an **Access expires** sensor
+and a **Refresh** button.
+
+### Options
+
+Open the integration in **Settings → Devices & services**, then **Configure**:
+
+- **Refresh interval** (default 6 h, 1–24 h). Banks usually allow only ~4 automatic requests per
+  day, so going below 6 h may get requests refused.
+- **Main balance**: which balance type the Balance sensor shows. **Automatic** picks, in order,
+  `CLBD` (booked), `ITBD`, `XPCD`, `ITAV`, `CLAV`, `OPBD`, `OPAV`. The types your bank actually
+  returns are listed in the sensor's `available_balance_types` attribute.
 
 ### Notes
 
-- Balances are refreshed every 6 hours: banks usually allow only ~4 background requests per day.
-  The last balances are saved, so restarting or reloading Home Assistant doesn't call the bank
-  again if the data is less than 6 hours old. If the bank's rate limit is hit anyway, the
-  last known balance stays displayed until the next refresh.
-- The "main" balance is picked in this order: `CLBD` (booked), `ITBD`, `XPCD`, `ITAV`, `CLAV`, `OPBD`, `OPAV`.
-  The sensor's `balance_type` attribute shows which one is used, and `fetched_at` when it was retrieved.
+- The last balances are saved, so restarting or reloading Home Assistant (or changing options)
+  doesn't call the bank again while the data is younger than the refresh interval. If the bank's
+  rate limit is hit anyway, the last known balance stays displayed until the next refresh.
+- The **Refresh** button fetches all accounts of that bank right away, ignoring the saved data.
+  Each press counts toward the bank's daily limit.
+- The Balance sensor's `balance_type` attribute shows which balance is used, and `fetched_at` when
+  it was retrieved.
 - Bank access expires (typically 90–180 days). Each account has an **Access expires** sensor.
   A week before expiry, Home Assistant asks you to re-authenticate (**Settings → Devices & services**):
   approve access at your bank again and paste the URL back. Your entities and history are kept.

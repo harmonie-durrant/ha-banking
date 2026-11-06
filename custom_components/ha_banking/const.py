@@ -19,16 +19,23 @@ CONF_VALID_UNTIL: Final = "valid_until"
 DEFAULT_COUNTRY: Final = "FR"
 DEFAULT_REDIRECT_URL: Final = "https://enablebanking.com/"
 
-# Banks commonly allow ~4 unattended (background) requests per day under PSD2.
-UPDATE_INTERVAL: Final = timedelta(hours=6)
+# Options
+CONF_UPDATE_INTERVAL: Final = "update_interval"  # hours
+CONF_BALANCE_TYPE: Final = "balance_type"
+BALANCE_TYPE_AUTO: Final = "auto"
 
-# Preferred order when picking the "main" balance of an account.
+# Banks commonly allow ~4 unattended (background) requests per day under PSD2.
+DEFAULT_UPDATE_HOURS: Final = 6
+MIN_UPDATE_HOURS: Final = 1
+MAX_UPDATE_HOURS: Final = 24
+
+# Order used to pick the "main" balance automatically (or as fallback when the
+# chosen type is not returned by the bank).
 BALANCE_TYPE_PRIORITY: Final = ("CLBD", "ITBD", "XPCD", "ITAV", "CLAV", "OPBD", "OPAV")
 
-# A cached result younger than this is reused instead of calling the bank
-# (e.g. after a Home Assistant restart). Slightly below UPDATE_INTERVAL so
-# scheduler jitter never skips a planned refresh.
-CACHE_MAX_AGE: Final = UPDATE_INTERVAL - timedelta(minutes=10)
+# A cached result is reused (restarts, reloads) while younger than the update
+# interval minus this margin, so scheduler jitter never skips a planned refresh.
+CACHE_MARGIN: Final = timedelta(minutes=10)
 
 # Ask the user to re-authorize this long before bank access expires.
 REAUTH_BEFORE_EXPIRY: Final = timedelta(days=7)

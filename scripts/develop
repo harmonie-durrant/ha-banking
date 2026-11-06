@@ -13,4 +13,10 @@ mkdir -p config/custom_components
 ln -sfn ../../custom_components/ha_banking config/custom_components/ha_banking
 
 echo "Home Assistant: http://localhost:8123 (first start installs dependencies, be patient)"
-exec .venv/bin/hass --config config "$@"
+# Exit code 100 = restart requested from the UI: start again.
+while true; do
+  status=0
+  .venv/bin/hass --config config "$@" || status=$?
+  [[ $status -eq 100 ]] || exit $status
+  echo "Restarting Home Assistant..."
+done

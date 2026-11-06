@@ -79,6 +79,41 @@
       "access_expires": {
         "name": "Expiration de l'accès"
       }
+    },
+    "button": {
+      "refresh": {
+        "name": "Actualiser"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "description": "Les banques n'autorisent en général qu'environ 4 requêtes automatiques par jour : actualiser plus souvent que toutes les 6 heures peut entraîner des refus (le dernier solde reste alors affiché).",
+        "data": {
+          "update_interval": "Intervalle d'actualisation",
+          "balance_type": "Solde principal"
+        },
+        "data_description": {
+          "update_interval": "Heures entre deux actualisations automatiques.",
+          "balance_type": "Le solde affiché par le capteur Solde. Les types renvoyés par votre banque sont listés dans l'attribut available_balance_types du capteur. Repasse en automatique si la banque ne renvoie pas le type choisi."
+        }
+      }
+    }
+  },
+  "selector": {
+    "balance_type": {
+      "options": {
+        "auto": "Automatique",
+        "CLBD": "Solde comptable de fin de journée (CLBD)",
+        "ITBD": "Solde comptable en cours de journée (ITBD)",
+        "XPCD": "Solde prévisionnel, opérations en attente incluses (XPCD)",
+        "ITAV": "Solde disponible en cours de journée (ITAV)",
+        "CLAV": "Solde disponible de fin de journée (CLAV)",
+        "OPBD": "Solde comptable d'ouverture (OPBD)",
+        "OPAV": "Solde disponible d'ouverture (OPAV)"
+      }
     }
   }
 }

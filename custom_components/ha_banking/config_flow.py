@@ -13,11 +13,17 @@ import voluptuous as vol
 from homeassistant.config_entries import (
     SOURCE_REAUTH,
     SOURCE_RECONFIGURE,
+    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    OptionsFlowWithReload,
 )
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -29,17 +35,24 @@ from homeassistant.util import dt as dt_util
 
 from .api import EnableBankingAuthError, EnableBankingClient, EnableBankingError
 from .const import (
+    BALANCE_TYPE_AUTO,
+    BALANCE_TYPE_PRIORITY,
     CONF_ACCOUNTS,
     CONF_APPLICATION_ID,
     CONF_ASPSP,
+    CONF_BALANCE_TYPE,
     CONF_COUNTRY,
     CONF_PRIVATE_KEY,
     CONF_REDIRECT_URL,
     CONF_SESSION_ID,
+    CONF_UPDATE_INTERVAL,
     CONF_VALID_UNTIL,
     DEFAULT_COUNTRY,
     DEFAULT_REDIRECT_URL,
+    DEFAULT_UPDATE_HOURS,
     DOMAIN,
+    MAX_UPDATE_HOURS,
+    MIN_UPDATE_HOURS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,6 +66,12 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for HA Banking."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> HaBankingOptionsFlow:
+        """Return the options flow."""
+        return HaBankingOptionsFlow()
 
     def __init__(self) -> None:
         """Initialize the flow."""
@@ -390,6 +409,47 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
                 },
             )
         return self.async_create_entry(title=bank, data=self._data)
+
+
+class HaBankingOptionsFlow(OptionsFlowWithReload):
+    """Refresh interval and main balance type."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            user_input[CONF_UPDATE_INTERVAL] = int(user_input[CONF_UPDATE_INTERVAL])
+            return self.async_create_entry(data=user_input)
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_HOURS
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=MIN_UPDATE_HOURS,
+                        max=MAX_UPDATE_HOURS,
+                        step=1,
+                        unit_of_measurement="h",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(CONF_BALANCE_TYPE, default=BALANCE_TYPE_AUTO): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[BALANCE_TYPE_AUTO, *BALANCE_TYPE_PRIORITY],
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key=CONF_BALANCE_TYPE,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                schema, self.config_entry.options
+            ),
+        )
 
 
 def describe_account(acc: dict[str, Any]) -> str:

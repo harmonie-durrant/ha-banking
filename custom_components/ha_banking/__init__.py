@@ -9,7 +9,7 @@ from homeassistant.helpers.storage import Store
 from .const import DOMAIN, STORAGE_VERSION
 from .coordinator import HaBankingConfigEntry, HaBankingCoordinator
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: HaBankingConfigEntry) -> bool:
