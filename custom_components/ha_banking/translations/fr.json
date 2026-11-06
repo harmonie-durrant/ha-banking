@@ -106,13 +106,13 @@
     "balance_type": {
       "options": {
         "auto": "Automatique",
-        "CLBD": "Solde comptable de fin de journée (CLBD)",
-        "ITBD": "Solde comptable en cours de journée (ITBD)",
-        "XPCD": "Solde prévisionnel, opérations en attente incluses (XPCD)",
-        "ITAV": "Solde disponible en cours de journée (ITAV)",
-        "CLAV": "Solde disponible de fin de journée (CLAV)",
-        "OPBD": "Solde comptable d'ouverture (OPBD)",
-        "OPAV": "Solde disponible d'ouverture (OPAV)"
+        "clbd": "Solde comptable de fin de journée (CLBD)",
+        "itbd": "Solde comptable en cours de journée (ITBD)",
+        "xpcd": "Solde prévisionnel, opérations en attente incluses (XPCD)",
+        "itav": "Solde disponible en cours de journée (ITAV)",
+        "clav": "Solde disponible de fin de journée (CLAV)",
+        "opbd": "Solde comptable d'ouverture (OPBD)",
+        "opav": "Solde disponible d'ouverture (OPAV)"
       }
     }
   }

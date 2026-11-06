@@ -126,7 +126,8 @@ class HaBankingCoordinator(DataUpdateCoordinator[BalanceData]):
         )
         self._cache_max_age = update_interval - CACHE_MARGIN
         preferred = entry.options.get(CONF_BALANCE_TYPE, BALANCE_TYPE_AUTO)
-        self._preferred = None if preferred == BALANCE_TYPE_AUTO else preferred
+        # Stored lowercase (translation keys must be), bank codes are uppercase.
+        self._preferred = None if preferred == BALANCE_TYPE_AUTO else preferred.upper()
         self.last_fetch: datetime | None = None
         self._raw: RawBalances = {}
         self._force_next = False

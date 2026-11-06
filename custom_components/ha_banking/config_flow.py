@@ -437,7 +437,10 @@ class HaBankingOptionsFlow(OptionsFlowWithReload):
                 ),
                 vol.Required(CONF_BALANCE_TYPE, default=BALANCE_TYPE_AUTO): SelectSelector(
                     SelectSelectorConfig(
-                        options=[BALANCE_TYPE_AUTO, *BALANCE_TYPE_PRIORITY],
+                        options=[
+                            BALANCE_TYPE_AUTO,
+                            *(t.lower() for t in BALANCE_TYPE_PRIORITY),
+                        ],
                         mode=SelectSelectorMode.DROPDOWN,
                         translation_key=CONF_BALANCE_TYPE,
                     )

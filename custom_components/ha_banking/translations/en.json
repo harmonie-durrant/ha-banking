@@ -106,13 +106,13 @@
     "balance_type": {
       "options": {
         "auto": "Automatic",
-        "CLBD": "Booked balance at end of day (CLBD)",
-        "ITBD": "Booked balance, intraday (ITBD)",
-        "XPCD": "Expected balance, incl. pending (XPCD)",
-        "ITAV": "Available balance, intraday (ITAV)",
-        "CLAV": "Available balance at end of day (CLAV)",
-        "OPBD": "Opening booked balance (OPBD)",
-        "OPAV": "Opening available balance (OPAV)"
+        "clbd": "Booked balance at end of day (CLBD)",
+        "itbd": "Booked balance, intraday (ITBD)",
+        "xpcd": "Expected balance, incl. pending (XPCD)",
+        "itav": "Available balance, intraday (ITAV)",
+        "clav": "Available balance at end of day (CLAV)",
+        "opbd": "Opening booked balance (OPBD)",
+        "opav": "Opening available balance (OPAV)"
       }
     }
   }
