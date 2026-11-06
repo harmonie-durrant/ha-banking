@@ -2,8 +2,53 @@
   "config": {
     "step": {
       "user": {
-        "title": "HA Banking",
-        "description": "Connect a bank account to Home Assistant."
+        "title": "Enable Banking application",
+        "description": "Create an application in the [Enable Banking control panel](https://enablebanking.com/cp/applications) (Production, restricted mode is free for your own accounts). Register the same redirect URL there, then link your accounts in the control panel.",
+        "data": {
+          "application_id": "Application ID",
+          "private_key": "Private key (PEM)",
+          "redirect_url": "Redirect URL",
+          "country": "Bank country code"
+        },
+        "data_description": {
+          "private_key": "Paste the full content of the .pem file generated when creating the application.",
+          "redirect_url": "Must exactly match a redirect URL registered on the application.",
+          "country": "Two-letter ISO code, e.g. FR."
+        }
+      },
+      "bank": {
+        "title": "Select your bank",
+        "data": {
+          "aspsp": "Bank"
+        }
+      },
+      "authorize": {
+        "title": "Authorize access",
+        "description": "1. Open [this link to {bank}]({auth_url}) and log in to approve access.\n2. You will be redirected to a page (it may show an error, that's expected).\n3. Copy the **full URL** from your browser's address bar and paste it below.",
+        "data": {
+          "callback_url": "Redirected URL"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Enable Banking rejected the application ID or private key.",
+      "cannot_connect": "Could not reach Enable Banking.",
+      "no_banks": "No banks available for this country.",
+      "auth_start_failed": "Could not start the authorization with this bank. Check that the redirect URL is registered on the application.",
+      "bank_denied": "The bank returned an error or access was refused.",
+      "no_code": "No authorization code found in the URL. Paste the full URL you were redirected to.",
+      "state_mismatch": "This URL belongs to another authorization attempt. Use the link above again.",
+      "session_failed": "Could not create the bank session. The code may have expired, try again."
+    },
+    "abort": {
+      "already_configured": "These accounts are already configured.",
+      "no_accounts": "The bank did not return any accessible account."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "balance": {
+        "name": "Balance"
       }
     }
   }

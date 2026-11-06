@@ -2,8 +2,53 @@
   "config": {
     "step": {
       "user": {
-        "title": "HA Banking",
-        "description": "Connectez un compte bancaire à Home Assistant."
+        "title": "Application Enable Banking",
+        "description": "Créez une application dans le [panneau Enable Banking](https://enablebanking.com/cp/applications) (Production, le mode restreint est gratuit pour vos propres comptes). Enregistrez-y la même URL de redirection, puis liez vos comptes dans le panneau.",
+        "data": {
+          "application_id": "ID de l'application",
+          "private_key": "Clé privée (PEM)",
+          "redirect_url": "URL de redirection",
+          "country": "Code pays de la banque"
+        },
+        "data_description": {
+          "private_key": "Collez le contenu complet du fichier .pem généré lors de la création de l'application.",
+          "redirect_url": "Doit correspondre exactement à une URL de redirection enregistrée sur l'application.",
+          "country": "Code ISO à deux lettres, ex. FR."
+        }
+      },
+      "bank": {
+        "title": "Choisissez votre banque",
+        "data": {
+          "aspsp": "Banque"
+        }
+      },
+      "authorize": {
+        "title": "Autoriser l'accès",
+        "description": "1. Ouvrez [ce lien vers {bank}]({auth_url}) et connectez-vous pour autoriser l'accès.\n2. Vous serez redirigé vers une page (une erreur peut s'afficher, c'est normal).\n3. Copiez l'**URL complète** de la barre d'adresse et collez-la ci-dessous.",
+        "data": {
+          "callback_url": "URL de redirection obtenue"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Enable Banking a refusé l'ID d'application ou la clé privée.",
+      "cannot_connect": "Impossible de joindre Enable Banking.",
+      "no_banks": "Aucune banque disponible pour ce pays.",
+      "auth_start_failed": "Impossible de démarrer l'autorisation avec cette banque. Vérifiez que l'URL de redirection est enregistrée sur l'application.",
+      "bank_denied": "La banque a renvoyé une erreur ou l'accès a été refusé.",
+      "no_code": "Aucun code d'autorisation trouvé dans l'URL. Collez l'URL complète de redirection.",
+      "state_mismatch": "Cette URL correspond à une autre tentative d'autorisation. Utilisez à nouveau le lien ci-dessus.",
+      "session_failed": "Impossible de créer la session bancaire. Le code a peut-être expiré, réessayez."
+    },
+    "abort": {
+      "already_configured": "Ces comptes sont déjà configurés.",
+      "no_accounts": "La banque n'a renvoyé aucun compte accessible."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "balance": {
+        "name": "Solde"
       }
     }
   }
