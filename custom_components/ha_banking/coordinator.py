@@ -31,10 +31,13 @@ from .const import (
     CONF_APPLICATION_ID,
     CONF_BALANCE_TYPE,
     CONF_PRIVATE_KEY,
+    CONF_SELECTED_ACCOUNTS,
+    CONF_SESSION_ID,
     CONF_UPDATE_INTERVAL,
     CONF_VALID_UNTIL,
     DEFAULT_UPDATE_HOURS,
     DOMAIN,
+    NO_CURRENCY,
     REAUTH_BEFORE_EXPIRY,
     STORAGE_VERSION,
 )
@@ -81,10 +84,26 @@ def pick_main_balance(
         return None
     return AccountBalance(
         amount=value,
-        currency=amount.get("currency", ""),
+        currency="" if amount.get("currency") == NO_CURRENCY else amount.get("currency", ""),
         balance_type=best.get("balance_type"),
         reference_date=best.get("reference_date"),
     )
+
+
+def selected_accounts(entry: ConfigEntry) -> list[dict[str, Any]]:
+    """Accounts the user chose to track."""
+    accounts: list[dict[str, Any]] = entry.data[CONF_ACCOUNTS]
+    selected = entry.options.get(CONF_SELECTED_ACCOUNTS)
+    if selected is None:
+        return accounts
+    return [acc for acc in accounts if acc["id"] in selected]
+
+
+def store_prefetched_balances(
+    hass: HomeAssistant, session_id: str, raw: RawBalances
+) -> None:
+    """Hand balances fetched during the config flow over to the coordinator."""
+    hass.data.setdefault(DOMAIN, {})[session_id] = (dt_util.utcnow(), raw)
 
 
 def access_valid_until(entry: ConfigEntry) -> datetime | None:
@@ -134,6 +153,10 @@ class HaBankingCoordinator(DataUpdateCoordinator[BalanceData]):
 
     async def _async_setup(self) -> None:
         """Load the last fetched balances from disk."""
+        await self._async_load_cache()
+        await self._async_use_prefetched()
+
+    async def _async_load_cache(self) -> None:
         stored = await self._store.async_load()
         if not stored:
             return
@@ -149,6 +172,18 @@ class HaBankingCoordinator(DataUpdateCoordinator[BalanceData]):
             self.last_fetch = None
             self._raw = {}
 
+    async def _async_use_prefetched(self) -> None:
+        """Reuse balances fetched while the user was choosing accounts."""
+        prefetched = self.hass.data.get(DOMAIN, {}).pop(
+            self.config_entry.data.get(CONF_SESSION_ID), None
+        )
+        if not prefetched:
+            return
+        self.last_fetch, self._raw = prefetched
+        await self._store.async_save(
+            {"fetched_at": self.last_fetch.isoformat(), "accounts": self._raw}
+        )
+
     async def async_force_refresh(self) -> None:
         """Fetch from the bank now, ignoring the cache."""
         self._force_next = True
@@ -162,7 +197,7 @@ class HaBankingCoordinator(DataUpdateCoordinator[BalanceData]):
 
     async def _async_update_data(self) -> BalanceData:
         now = dt_util.utcnow()
-        accounts = self.config_entry.data[CONF_ACCOUNTS]
+        accounts = selected_accounts(self.config_entry)
         force, self._force_next = self._force_next, False
 
         valid_until = access_valid_until(self.config_entry)

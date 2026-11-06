@@ -24,6 +24,11 @@ CONF_UPDATE_INTERVAL: Final = "update_interval"  # hours
 CONF_BALANCE_TYPE: Final = "balance_type"
 BALANCE_TYPE_AUTO: Final = "auto"
 CONF_IMPORT_HISTORY: Final = "import_history"
+# Ids of the tracked accounts (all accounts when absent, e.g. entries from <0.4).
+CONF_SELECTED_ACCOUNTS: Final = "selected_accounts"
+
+# ISO 4217 code for "no currency", sent by some banks in account details.
+NO_CURRENCY: Final = "XXX"
 
 # Set in entry data after each bank authorization; cleared once the history
 # import has run. Banks often only return long history right after the user

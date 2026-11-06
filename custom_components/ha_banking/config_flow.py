@@ -24,6 +24,7 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -33,7 +34,12 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.util import dt as dt_util
 
-from .api import EnableBankingAuthError, EnableBankingClient, EnableBankingError
+from .api import (
+    EnableBankingAuthError,
+    EnableBankingClient,
+    EnableBankingError,
+    EnableBankingRateLimitError,
+)
 from .const import (
     BALANCE_TYPE_AUTO,
     BALANCE_TYPE_PRIORITY,
@@ -46,6 +52,7 @@ from .const import (
     CONF_IMPORT_HISTORY,
     CONF_PRIVATE_KEY,
     CONF_REDIRECT_URL,
+    CONF_SELECTED_ACCOUNTS,
     CONF_SESSION_ID,
     CONF_UPDATE_INTERVAL,
     CONF_VALID_UNTIL,
@@ -55,6 +62,12 @@ from .const import (
     DOMAIN,
     MAX_UPDATE_HOURS,
     MIN_UPDATE_HOURS,
+    NO_CURRENCY,
+)
+from .coordinator import (
+    pick_main_balance,
+    selected_accounts,
+    store_prefetched_balances,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -82,6 +95,9 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
         self._aspsps: dict[str, dict[str, Any]] = {}
         self._auth_url: str | None = None
         self._state: str = uuid.uuid4().hex
+        self._session_data: dict[str, Any] = {}
+        self._balances: dict[str, list[dict[str, Any]]] = {}
+        self._skipped: list[str] = []
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -360,19 +376,27 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
                 skipped.append(description)
                 continue
             _LOGGER.info("Adding account: %s", description)
+            account_id = acc.get("account_id") or {}
+            ident = account_id.get("iban") or (account_id.get("other") or {}).get(
+                "identification"
+            )
+            currency = acc.get("currency")
             accounts.append(
                 {
                     "uid": acc["uid"],
                     "id": acc.get("identification_hash") or acc["uid"],
                     "name": acc.get("name") or acc.get("product"),
-                    "iban": (acc.get("account_id") or {}).get("iban"),
-                    "currency": acc.get("currency"),
+                    "iban": account_id.get("iban"),
+                    "mask": ident[-4:] if ident else None,
+                    "type": acc.get("cash_account_type"),
+                    "currency": None if currency == NO_CURRENCY else currency,
                 }
             )
         if not accounts:
             return self.async_abort(reason="no_accounts")
 
-        session_data = {
+        self._skipped = skipped
+        self._session_data = {
             CONF_SESSION_ID: session["session_id"],
             CONF_ACCOUNTS: accounts,
             CONF_VALID_UNTIL: (session.get("access") or {}).get("valid_until"),
@@ -380,38 +404,110 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
         }
 
         if self.source in (SOURCE_REAUTH, SOURCE_RECONFIGURE):
-            entry = (
-                self._get_reauth_entry()
-                if self.source == SOURCE_REAUTH
-                else self._get_reconfigure_entry()
-            )
+            entry = self._existing_entry()
             old_ids = {acc["id"] for acc in entry.data[CONF_ACCOUNTS]}
             if not old_ids & {acc["id"] for acc in accounts}:
                 return self.async_abort(reason="wrong_accounts")
-            updates = {
-                key: self._data[key]
-                for key in (CONF_APPLICATION_ID, CONF_PRIVATE_KEY, CONF_REDIRECT_URL)
-            }
-            return self.async_update_reload_and_abort(
-                entry, data_updates={**updates, **session_data}
+            if self.source == SOURCE_REAUTH:
+                # Keep the user's account selection as is.
+                return self._async_update_existing(entry, entry.options)
+        else:
+            await self.async_set_unique_id(
+                "|".join(sorted(acc["id"] for acc in accounts))
             )
+            self._abort_if_unique_id_configured()
 
-        await self.async_set_unique_id(
-            "|".join(sorted(acc["id"] for acc in accounts))
+        # Show balances while choosing; they also become the first cached data.
+        self._balances = await self._async_fetch_balances(accounts)
+        store_prefetched_balances(
+            self.hass, session["session_id"], self._balances
         )
-        self._abort_if_unique_id_configured()
+        return await self.async_step_accounts()
 
-        self._data.update(session_data)
-        if skipped:
-            return self.async_create_entry(
-                title=bank,
-                data=self._data,
-                description="skipped_accounts",
-                description_placeholders={
-                    "accounts": "\n".join(f"- {s}" for s in skipped)
-                },
-            )
-        return self.async_create_entry(title=bank, data=self._data)
+    def _existing_entry(self) -> ConfigEntry:
+        return (
+            self._get_reauth_entry()
+            if self.source == SOURCE_REAUTH
+            else self._get_reconfigure_entry()
+        )
+
+    def _async_update_existing(
+        self, entry: ConfigEntry, options: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        updates = {
+            key: self._data[key]
+            for key in (CONF_APPLICATION_ID, CONF_PRIVATE_KEY, CONF_REDIRECT_URL)
+        }
+        return self.async_update_reload_and_abort(
+            entry,
+            data_updates={**updates, **self._session_data},
+            options=dict(options),
+        )
+
+    async def _async_fetch_balances(
+        self, accounts: list[dict[str, Any]]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Fetch balances of every account; missing ones are shown as unknown."""
+        assert self._client is not None
+        raw: dict[str, list[dict[str, Any]]] = {}
+        for account in accounts:
+            try:
+                raw[account["id"]] = await self._client.get_balances(account["uid"])
+            except EnableBankingRateLimitError as err:
+                _LOGGER.warning("Bank rate limit reached while listing balances: %s", err)
+                break
+            except EnableBankingError as err:
+                _LOGGER.warning(
+                    "Could not read balances of %s: %s", account.get("name"), err
+                )
+        return raw
+
+    async def async_step_accounts(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose which accounts to track."""
+        accounts: list[dict[str, Any]] = self._session_data[CONF_ACCOUNTS]
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            selected = user_input[CONF_SELECTED_ACCOUNTS]
+            if not selected:
+                errors["base"] = "no_accounts_selected"
+            elif self.source == SOURCE_RECONFIGURE:
+                entry = self._get_reconfigure_entry()
+                return self._async_update_existing(
+                    entry, {**entry.options, CONF_SELECTED_ACCOUNTS: selected}
+                )
+            else:
+                self._data.update(self._session_data)
+                options = {CONF_SELECTED_ACCOUNTS: selected}
+                bank = self._data[CONF_ASPSP]
+                if self._skipped:
+                    return self.async_create_entry(
+                        title=bank,
+                        data=self._data,
+                        options=options,
+                        description="skipped_accounts",
+                        description_placeholders={
+                            "accounts": "\n".join(f"- {s}" for s in self._skipped)
+                        },
+                    )
+                return self.async_create_entry(title=bank, data=self._data, options=options)
+
+        if self.source == SOURCE_RECONFIGURE:
+            current = {acc["id"] for acc in selected_accounts(self._get_reconfigure_entry())}
+            default = [acc["id"] for acc in accounts if acc["id"] in current]
+        else:
+            default = [
+                acc["id"]
+                for acc in accounts
+                if not maybe_immediate_debit_card(acc, self._balances.get(acc["id"]))
+            ]
+        return self.async_show_form(
+            step_id="accounts",
+            data_schema=accounts_schema(accounts, self._balances, default),
+            description_placeholders={"bank": self._data[CONF_ASPSP]},
+            errors=errors,
+        )
 
 
 class HaBankingOptionsFlow(OptionsFlowWithReload):
@@ -421,11 +517,20 @@ class HaBankingOptionsFlow(OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        accounts: list[dict[str, Any]] = self.config_entry.data[CONF_ACCOUNTS]
+        # Balances known locally (tracked accounts); no bank call here.
+        coordinator = getattr(self.config_entry, "runtime_data", None)
+        balances = coordinator.raw_balances if coordinator is not None else {}
+        errors: dict[str, str] = {}
         if user_input is not None:
-            user_input[CONF_UPDATE_INTERVAL] = int(user_input[CONF_UPDATE_INTERVAL])
-            return self.async_create_entry(data=user_input)
+            if not user_input[CONF_SELECTED_ACCOUNTS]:
+                errors["base"] = "no_accounts_selected"
+            else:
+                user_input[CONF_UPDATE_INTERVAL] = int(user_input[CONF_UPDATE_INTERVAL])
+                return self.async_create_entry(data=user_input)
 
-        schema = vol.Schema(
+        current = [acc["id"] for acc in selected_accounts(self.config_entry)]
+        schema = accounts_schema(accounts, balances, current).extend(
             {
                 vol.Required(
                     CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_HOURS
@@ -451,12 +556,65 @@ class HaBankingOptionsFlow(OptionsFlowWithReload):
                 vol.Required(CONF_IMPORT_HISTORY, default=True): bool,
             }
         )
+        suggested = {**self.config_entry.options, CONF_SELECTED_ACCOUNTS: current}
+        if user_input is not None:
+            suggested.update(user_input)
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(
-                schema, self.config_entry.options
-            ),
+            data_schema=self.add_suggested_values_to_schema(schema, suggested),
+            errors=errors,
         )
+
+
+def maybe_immediate_debit_card(
+    account: dict[str, Any], balances: list[dict[str, Any]] | None
+) -> bool:
+    """A card account showing 0: immediate-debit cards always report 0."""
+    if account.get("type") != "CARD" or balances is None:
+        return False
+    main = pick_main_balance(balances)
+    return main is None or main.amount == 0
+
+
+def account_label(account: dict[str, Any], balances: list[dict[str, Any]] | None) -> str:
+    """'Name (…1234) · 160.85 EUR', with ⚠ for a card showing 0."""
+    label = account.get("name") or account["id"]
+    if account.get("mask"):
+        label += f" (…{account['mask']})"
+    main = pick_main_balance(balances) if balances is not None else None
+    if main is not None:
+        currency = main.currency or account.get("currency") or ""
+        label += f" · {main.amount} {currency}".rstrip()
+    else:
+        label += " · —"
+    if maybe_immediate_debit_card(account, balances):
+        label += " ⚠"
+    return label
+
+
+def accounts_schema(
+    accounts: list[dict[str, Any]],
+    balances: Mapping[str, list[dict[str, Any]]],
+    default: list[str],
+) -> vol.Schema:
+    """Multi-select of accounts with their balances."""
+    return vol.Schema(
+        {
+            vol.Required(CONF_SELECTED_ACCOUNTS, default=default): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(
+                            value=acc["id"],
+                            label=account_label(acc, balances.get(acc["id"])),
+                        )
+                        for acc in accounts
+                    ],
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                )
+            )
+        }
+    )
 
 
 def describe_account(acc: dict[str, Any]) -> str:

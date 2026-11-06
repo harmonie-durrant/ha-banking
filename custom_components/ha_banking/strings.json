@@ -47,6 +47,13 @@
           "redirect_url": "Must exactly match a redirect URL registered on the application.",
           "reauthorize": "Required if you changed application. Also refreshes the list of accounts, e.g. to add an account that was missing."
         }
+      },
+      "accounts": {
+        "title": "Choose accounts",
+        "description": "Select the {bank} accounts to track. Current balances are shown next to each account.\n\n⚠ Card account showing 0: immediate-debit cards always report a balance of 0 (spending is taken straight from the current account), so they are not selected by default. Deferred-debit cards show the amount due.",
+        "data": {
+          "selected_accounts": "Accounts"
+        }
       }
     },
     "error": {
@@ -57,7 +64,8 @@
       "bank_denied": "The bank returned an error or access was refused.",
       "no_code": "No authorization code found in the URL. Paste the full URL you were redirected to.",
       "state_mismatch": "This URL belongs to another authorization attempt. Use the link above again.",
-      "session_failed": "Could not create the bank session. The code may have expired, try again."
+      "session_failed": "Could not create the bank session. The code may have expired, try again.",
+      "no_accounts_selected": "Select at least one account."
     },
     "abort": {
       "already_configured": "These accounts are already configured.",
@@ -92,16 +100,21 @@
         "title": "Options",
         "description": "Banks usually allow only about 4 automatic requests per day: refreshing more often than every 6 hours may get requests refused (the last balance then stays displayed).",
         "data": {
+          "selected_accounts": "Tracked accounts",
           "update_interval": "Refresh interval",
           "balance_type": "Main balance",
           "import_history": "Import history"
         },
         "data_description": {
+          "selected_accounts": "Unticked accounts are removed with their entities. Balances are shown for tracked accounts only; use Reconfigure with \"Authorize bank access again\" to see all balances. ⚠ marks card accounts showing 0 (immediate-debit cards always report 0).",
           "update_interval": "Hours between automatic refreshes.",
           "balance_type": "Which balance the Balance sensor shows. The types your bank returns are listed in the sensor's available_balance_types attribute. Falls back to automatic if the bank doesn't return the chosen type.",
           "import_history": "After each bank authorization, rebuild up to 6 months of daily balances from your transactions and add them to the Balance sensor's history."
         }
       }
+    },
+    "error": {
+      "no_accounts_selected": "Select at least one account."
     }
   },
   "selector": {

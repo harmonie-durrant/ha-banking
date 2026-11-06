@@ -24,7 +24,8 @@ class HaBankingEntity(CoordinatorEntity[HaBankingCoordinator]):
         self._account_id: str = account["id"]
         bank = coordinator.config_entry.data[CONF_ASPSP]
         iban: str | None = account.get("iban")
-        name = account.get("name") or (f"{bank} …{iban[-4:]}" if iban else bank)
+        mask = account.get("mask") or (iban[-4:] if iban else None)
+        name = account.get("name") or (f"{bank} …{mask}" if mask else bank)
         self._attr_translation_key = key
         self._attr_unique_id = f"{self._account_id}_{key}"
         self._attr_device_info = DeviceInfo(

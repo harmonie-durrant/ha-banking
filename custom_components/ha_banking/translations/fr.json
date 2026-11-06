@@ -47,6 +47,13 @@
           "redirect_url": "Doit correspondre exactement à une URL de redirection enregistrée sur l'application.",
           "reauthorize": "Nécessaire si vous avez changé d'application. Met aussi à jour la liste des comptes, par exemple pour ajouter un compte manquant."
         }
+      },
+      "accounts": {
+        "title": "Choisir les comptes",
+        "description": "Sélectionnez les comptes {bank} à suivre. Le solde actuel est affiché à côté de chaque compte.\n\n⚠ Carte affichant 0 : les cartes à débit immédiat ont toujours un solde de 0 (les dépenses sont prélevées directement sur le compte courant), elles ne sont donc pas sélectionnées par défaut. Les cartes à débit différé affichent l'encours à prélever.",
+        "data": {
+          "selected_accounts": "Comptes"
+        }
       }
     },
     "error": {
@@ -57,7 +64,8 @@
       "bank_denied": "La banque a renvoyé une erreur ou l'accès a été refusé.",
       "no_code": "Aucun code d'autorisation trouvé dans l'URL. Collez l'URL complète de redirection.",
       "state_mismatch": "Cette URL correspond à une autre tentative d'autorisation. Utilisez à nouveau le lien ci-dessus.",
-      "session_failed": "Impossible de créer la session bancaire. Le code a peut-être expiré, réessayez."
+      "session_failed": "Impossible de créer la session bancaire. Le code a peut-être expiré, réessayez.",
+      "no_accounts_selected": "Sélectionnez au moins un compte."
     },
     "abort": {
       "already_configured": "Ces comptes sont déjà configurés.",
@@ -92,16 +100,21 @@
         "title": "Options",
         "description": "Les banques n'autorisent en général qu'environ 4 requêtes automatiques par jour : actualiser plus souvent que toutes les 6 heures peut entraîner des refus (le dernier solde reste alors affiché).",
         "data": {
+          "selected_accounts": "Comptes suivis",
           "update_interval": "Intervalle d'actualisation",
           "balance_type": "Solde principal",
           "import_history": "Importer l'historique"
         },
         "data_description": {
+          "selected_accounts": "Les comptes décochés sont supprimés avec leurs entités. Les soldes ne sont affichés que pour les comptes suivis ; utilisez Reconfigurer avec « Autoriser à nouveau l'accès bancaire » pour voir tous les soldes. ⚠ indique une carte affichant 0 (les cartes à débit immédiat affichent toujours 0).",
           "update_interval": "Heures entre deux actualisations automatiques.",
           "balance_type": "Le solde affiché par le capteur Solde. Les types renvoyés par votre banque sont listés dans l'attribut available_balance_types du capteur. Repasse en automatique si la banque ne renvoie pas le type choisi.",
           "import_history": "Après chaque autorisation bancaire, reconstitue jusqu'à 6 mois de soldes quotidiens à partir de vos opérations et les ajoute à l'historique du capteur Solde."
         }
       }
+    },
+    "error": {
+      "no_accounts_selected": "Sélectionnez au moins un compte."
     }
   },
   "selector": {

@@ -8,8 +8,7 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CONF_ACCOUNTS
-from .coordinator import HaBankingConfigEntry, HaBankingCoordinator
+from .coordinator import HaBankingConfigEntry, HaBankingCoordinator, selected_accounts
 from .entity import HaBankingEntity
 
 
@@ -21,7 +20,7 @@ async def async_setup_entry(
     """Set up one refresh button per account."""
     coordinator = entry.runtime_data
     async_add_entities(
-        RefreshButton(coordinator, account) for account in entry.data[CONF_ACCOUNTS]
+        RefreshButton(coordinator, account) for account in selected_accounts(entry)
     )
 
 

@@ -33,14 +33,18 @@ from .api import (
     EnableBankingSessionError,
 )
 from .const import (
-    CONF_ACCOUNTS,
     CONF_HISTORY_PENDING,
     DOMAIN,
     HISTORY_DAYS,
     HISTORY_FALLBACK_DAYS,
     MAX_TRANSACTION_PAGES,
 )
-from .coordinator import HaBankingConfigEntry, HaBankingCoordinator, pick_main_balance
+from .coordinator import (
+    HaBankingConfigEntry,
+    HaBankingCoordinator,
+    pick_main_balance,
+    selected_accounts,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -156,7 +160,7 @@ async def _async_import_all(hass: HomeAssistant, entry: HaBankingConfigEntry) ->
     now = dt_util.now()
     today = now.date()
 
-    for account in entry.data[CONF_ACCOUNTS]:
+    for account in selected_accounts(entry):
         name = account.get("name") or account["id"]
         entity_id = ent_reg.async_get_entity_id(
             "sensor", DOMAIN, f"{account['id']}_balance"

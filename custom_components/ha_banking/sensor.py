@@ -15,12 +15,13 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CONF_ACCOUNTS
+from .const import NO_CURRENCY
 from .coordinator import (
     AccountBalance,
     HaBankingConfigEntry,
     HaBankingCoordinator,
     access_valid_until,
+    selected_accounts,
 )
 from .entity import HaBankingEntity
 
@@ -33,7 +34,7 @@ async def async_setup_entry(
     """Set up sensors, one device per account."""
     coordinator = entry.runtime_data
     entities: list[SensorEntity] = []
-    for account in entry.data[CONF_ACCOUNTS]:
+    for account in selected_accounts(entry):
         entities.append(BalanceSensor(coordinator, account))
         entities.append(AccessExpirySensor(coordinator, account))
     async_add_entities(entities)
@@ -48,7 +49,10 @@ class BalanceSensor(HaBankingEntity, SensorEntity):
     def __init__(self, coordinator: HaBankingCoordinator, account: dict[str, Any]) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, account, "balance")
-        self._attr_native_unit_of_measurement = account.get("currency")
+        currency = account.get("currency")
+        self._attr_native_unit_of_measurement = (
+            None if currency == NO_CURRENCY else currency
+        )
 
     @property
     def _balance(self) -> AccountBalance | None:

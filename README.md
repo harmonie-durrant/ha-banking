@@ -35,13 +35,20 @@ in **restricted production** mode (only accounts you link yourself).
 5. Pick your bank, open the authorization link, approve access at your bank, then paste the
    full URL you land on back into Home Assistant.
 
-One device per account is created, each with a **Balance** sensor, an **Access expires** sensor
-and a **Refresh** button.
+After authorizing, you choose which accounts to track; each account's current balance is shown to
+help you choose. Card accounts showing 0 are marked ⚠ and not selected by default: immediate-debit
+cards always report a balance of 0 (spending comes straight out of the current account).
+
+One device is created per tracked account, each with a **Balance** sensor, an **Access expires**
+sensor and a **Refresh** button.
 
 ### Options
 
 Open the integration in **Settings → Devices & services**, then **Configure**:
 
+- **Tracked accounts**: untick an account to remove it (with its entities). Balances are shown for
+  tracked accounts; to see every account's balance, use **Reconfigure** with
+  **Authorize bank access again**.
 - **Refresh interval** (default 6 h, 1–24 h). Banks usually allow only ~4 automatic requests per
   day, so going below 6 h may get requests refused.
 - **Main balance**: which balance type the Balance sensor shows. **Automatic** picks, in order,

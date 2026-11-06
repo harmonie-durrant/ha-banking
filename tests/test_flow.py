@@ -13,6 +13,7 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import dt as dt_util
 
 DOMAIN = "ha_banking"
@@ -166,9 +167,14 @@ async def test_full_flow(hass: HomeAssistant, aioclient_mock, hass_storage) -> N
     r = await hass.config_entries.flow.async_configure(
         r["flow_id"], {"callback_url": f"https://enablebanking.com/?state={flow._state}&code=c"}
     )
+    assert r["step_id"] == "accounts", r
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {"selected_accounts": ["h1"]})
     assert r["type"] is FlowResultType.CREATE_ENTRY, r
     assert r["title"] == "Boursorama"
+    assert r["options"] == {"selected_accounts": ["h1"]}
     await hass.async_block_till_done()
+    # Balances fetched for the account list are reused: one bank call in total.
+    assert balance_calls(aioclient_mock) == 1
 
     _, _, _, headers = aioclient_mock.mock_calls[0]
     tok = headers["Authorization"].split()[1]
@@ -385,9 +391,17 @@ async def test_reconfigure_reauthorize_adds_account(hass: HomeAssistant, aioclie
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"callback_url": f"https://enablebanking.com/?state={state}&code=c"}
     )
+    assert result["step_id"] == "accounts", result
+    schema = result["data_schema"].schema
+    default = next(k for k in schema if k == "selected_accounts").default()
+    assert default == ["h1"]  # current selection, new account unticked
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"selected_accounts": ["h1", "h3"]}
+    )
     await hass.async_block_till_done()
 
     assert result["reason"] == "reconfigure_successful"
+    assert entry.options["selected_accounts"] == ["h1", "h3"]
     assert entry.data["session_id"] == "s3"
     assert [a["id"] for a in entry.data["accounts"]] == ["h1", "h3"]
     assert hass.states.get("sensor.lep_balance").state == "1234.56"
@@ -419,6 +433,7 @@ async def test_skipped_accounts_are_reported(
     r = await hass.config_entries.flow.async_configure(
         r["flow_id"], {"callback_url": f"https://enablebanking.com/?state={state}&code=c"}
     )
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {"selected_accounts": ["h1"]})
     await hass.async_block_till_done()
 
     assert r["type"] is FlowResultType.CREATE_ENTRY
@@ -466,12 +481,18 @@ async def test_options_change_balance_type_without_bank_call(
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["step_id"] == "init"
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"update_interval": 12, "balance_type": "xpcd", "import_history": True}
+        result["flow_id"],
+        {"selected_accounts": ["h1"], "update_interval": 12, "balance_type": "xpcd", "import_history": True},
     )
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options == {"update_interval": 12, "balance_type": "xpcd", "import_history": True}
+    assert entry.options == {
+        "selected_accounts": ["h1"],
+        "update_interval": 12,
+        "balance_type": "xpcd",
+        "import_history": True,
+    }
     assert entry.runtime_data.update_interval == timedelta(hours=12)
     assert hass.states.get(BALANCE_ENTITY).state == "42.00"
     assert balance_calls(aioclient_mock) == 0
@@ -509,3 +530,127 @@ async def test_refresh_button_bypasses_cache(hass: HomeAssistant, aioclient_mock
     # A normal refresh right after still uses the new cache.
     await entry.runtime_data.async_refresh()
     assert balance_calls(aioclient_mock) == 1
+
+
+CARD = {
+    "uid": "u2",
+    "identification_hash": "h2",
+    "name": "Carte Visa",
+    "account_id": {"other": {"identification": "XXXX6634"}},
+    "cash_account_type": "CARD",
+    "currency": "XXX",
+}
+CARD_URL = f"{API}/accounts/u2/balances"
+
+
+def option_labels(result: dict[str, Any]) -> dict[str, str]:
+    """value -> label of the account multi-select."""
+    selector = result["data_schema"].schema["selected_accounts"]
+    return {o["value"]: o["label"] for o in selector.config["options"]}
+
+
+async def test_choose_accounts_with_balances(hass: HomeAssistant, aioclient_mock) -> None:
+    """Balances are shown; a card at 0 is flagged and unticked by default."""
+    aioclient_mock.get(f"{API}/aspsps", json={"aspsps": [{"name": "Boursorama", "country": "FR"}]})
+    aioclient_mock.post(f"{API}/auth", json={"url": "https://bank.example/auth"})
+    aioclient_mock.post(f"{API}/sessions", json={**SESSION, "accounts": [*SESSION["accounts"], CARD]})
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+    aioclient_mock.get(
+        CARD_URL,
+        json={"balances": [{"balance_type": "OTHR", "balance_amount": {"amount": "0", "currency": "EUR"}}]},
+    )
+
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    r = await hass.config_entries.flow.async_configure(
+        r["flow_id"],
+        {"application_id": "app", "private_key": PEM, "redirect_url": "https://enablebanking.com/", "country": "FR"},
+    )
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {"aspsp": "Boursorama"})
+    state = hass.config_entries.flow._progress[r["flow_id"]]._state
+    r = await hass.config_entries.flow.async_configure(
+        r["flow_id"], {"callback_url": f"https://enablebanking.com/?state={state}&code=c"}
+    )
+
+    assert r["step_id"] == "accounts"
+    assert option_labels(r) == {
+        "h1": "Compte courant (…1234) · 1234.56 EUR",
+        "h2": "Carte Visa (…6634) · 0 EUR ⚠",
+    }
+    default = next(k for k in r["data_schema"].schema if k == "selected_accounts").default()
+    assert default == ["h1"]
+
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {"selected_accounts": []})
+    assert r["errors"] == {"base": "no_accounts_selected"}
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {"selected_accounts": ["h1"]})
+    await hass.async_block_till_done()
+
+    assert r["type"] is FlowResultType.CREATE_ENTRY
+    card = next(a for a in r["data"]["accounts"] if a["id"] == "h2")
+    assert card["currency"] is None  # "XXX" = no currency
+    assert card["type"] == "CARD"
+    assert hass.states.get(BALANCE_ENTITY) is not None
+    assert hass.states.get("sensor.carte_visa_balance") is None
+    # The card wasn't selected: only the current account is refreshed later.
+    assert sum(1 for c in aioclient_mock.mock_calls if str(c[1]) == CARD_URL) == 1
+
+
+def add_two_accounts(hass: HomeAssistant, selected: list[str] | None) -> MockConfigEntry:
+    """Entry with a current account and a card."""
+    data = entry_data()
+    data["accounts"].append(
+        {"uid": "u2", "id": "h2", "name": "Carte Visa", "iban": None, "mask": "6634", "type": "CARD", "currency": None}
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Boursorama",
+        unique_id="h1|h2",
+        data=data,
+        options={} if selected is None else {"selected_accounts": selected},
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+async def test_untracking_account_removes_its_device(hass: HomeAssistant, aioclient_mock) -> None:
+    """Unticking an account in the options removes its device and entities."""
+    entry = add_two_accounts(hass, selected=None)  # entry from before 0.4: all tracked
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+    aioclient_mock.get(
+        CARD_URL,
+        json={"balances": [{"balance_type": "OTHR", "balance_amount": {"amount": "0", "currency": "EUR"}}]},
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.carte_visa_balance").state == "0"
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert option_labels(result)["h2"] == "Carte Visa (…6634) · 0 EUR ⚠"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"selected_accounts": ["h1"], "update_interval": 6, "balance_type": "auto", "import_history": True},
+    )
+    await hass.async_block_till_done()
+
+    dev_reg = dr.async_get(hass)
+    assert dev_reg.async_get_device_by_identifier((DOMAIN, "h2"), entry.entry_id) is None
+    assert dev_reg.async_get_device_by_identifier((DOMAIN, "h1"), entry.entry_id) is not None
+    assert hass.states.get("sensor.carte_visa_balance") is None
+    assert er.async_get(hass).async_get_entity_id("sensor", DOMAIN, "h2_balance") is None
+
+
+async def test_reauth_keeps_account_selection(hass: HomeAssistant, aioclient_mock) -> None:
+    """Renewing access doesn't ask again and keeps untracked accounts untracked."""
+    entry = add_two_accounts(hass, selected=["h1"])
+    mock_reauth_api(
+        aioclient_mock, {**SESSION, "session_id": "s9", "accounts": [*SESSION["accounts"], CARD]}
+    )
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+
+    result = await entry.start_reauth_flow(hass)
+    result = await finish_reauth(hass, result["flow_id"])
+    await hass.async_block_till_done()
+
+    assert result["reason"] == "reauth_successful"
+    assert entry.options["selected_accounts"] == ["h1"]
+    assert entry.data["session_id"] == "s9"
+    assert hass.states.get("sensor.carte_visa_balance") is None
