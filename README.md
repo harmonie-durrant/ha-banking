@@ -2,8 +2,6 @@
 
 A Home Assistant custom integration for tracking your bank account balance.
 
-> Early stage — tracks the main balance of your accounts.
-
 Requires Home Assistant **2026.11.0** or later.
 
 ## Installation
