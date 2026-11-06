@@ -1,0 +1,10 @@
+# Development configuration for testing HA Banking locally (scripts/develop).
+default_config:
+
+# Proxy settings (needed behind Codespaces / VS Code port forwarding) are set
+# in the UI: Settings > System > Network. See README "Local test environment".
+
+logger:
+  default: info
+  logs:
+    custom_components.ha_banking: debug

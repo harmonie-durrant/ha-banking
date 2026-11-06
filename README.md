@@ -51,6 +51,24 @@ One device per account is created, each with a **Balance** sensor.
 
 ## Development
 
+### Local test environment
+
+Run a local Home Assistant with the integration loaded straight from this repo:
+
+```bash
+scripts/setup     # once: creates .venv with Home Assistant (requirements_dev.txt)
+scripts/develop   # starts Home Assistant on http://localhost:8123 using ./config
+```
+
+Restart Home Assistant (Ctrl+C then `scripts/develop`, or **Settings → System → Restart**) to pick up code changes.
+Only `config/configuration.yaml` is committed; everything else in `config/` is local state.
+
+When reaching Home Assistant through a forwarded port (GitHub Codespaces, VS Code) you may get
+`400: Bad Request`. In **Settings → System → Network**, enable **Use X-Forwarded-For** and add
+`127.0.0.1` and `::1` as trusted proxies, then restart.
+
+### Tests
+
 ```bash
 pip install -r requirements_test.txt
 pytest

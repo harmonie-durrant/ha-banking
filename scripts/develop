@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Run a local Home Assistant with this integration loaded from the repo.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+if [[ ! -x .venv/bin/hass ]]; then
+  echo "Run scripts/setup first." >&2
+  exit 1
+fi
+
+# Link the integration into the config dir so code edits apply on HA restart.
+mkdir -p config/custom_components
+ln -sfn ../../custom_components/ha_banking config/custom_components/ha_banking
+
+echo "Home Assistant: http://localhost:8123 (first start installs dependencies, be patient)"
+exec .venv/bin/hass --config config "$@"
