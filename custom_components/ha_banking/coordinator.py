@@ -185,7 +185,19 @@ class HaBankingCoordinator(DataUpdateCoordinator[BalanceData]):
                 ) from err
             except EnableBankingError as err:
                 raise UpdateFailed(str(err)) from err
-            result[account["id"]] = pick_main_balance(balances)
+            _LOGGER.debug(
+                "Balances for %s: %s",
+                account.get("name"),
+                [(b.get("balance_type"), b.get("balance_amount")) for b in balances],
+            )
+            main = pick_main_balance(balances)
+            if main is None:
+                _LOGGER.warning(
+                    "%s returned no usable balance for account %s",
+                    self.config_entry.title,
+                    account.get("name") or account["id"],
+                )
+            result[account["id"]] = main
 
         self.last_fetch = now
         self._cached = result

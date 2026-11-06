@@ -10,7 +10,12 @@ import uuid
 
 import voluptuous as vol
 
-from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    SOURCE_REAUTH,
+    SOURCE_RECONFIGURE,
+    ConfigFlow,
+    ConfigFlowResult,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectSelector,
@@ -40,6 +45,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 CONF_CALLBACK_URL = "callback_url"
+CONF_REAUTHORIZE = "reauthorize"
 CONTROL_PANEL_URL = "https://enablebanking.com/cp/applications"
 
 
@@ -167,28 +173,38 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         return await self.async_step_reauth_confirm()
 
+    async def _async_reauthorize_same_bank(
+        self, errors: dict[str, str]
+    ) -> ConfigFlowResult | None:
+        """Start a new authorization with the entry's bank.
+
+        Returns the next step, an abort, or None with errors filled in.
+        """
+        assert self._client is not None
+        try:
+            aspsps = await self._client.get_aspsps(self._data[CONF_COUNTRY])
+        except EnableBankingAuthError:
+            errors["base"] = "invalid_auth"
+            return None
+        except EnableBankingError:
+            _LOGGER.exception("Error listing banks")
+            errors["base"] = "cannot_connect"
+            return None
+        aspsp = next((a for a in aspsps if a["name"] == self._data[CONF_ASPSP]), None)
+        if aspsp is None:
+            return self.async_abort(reason="bank_not_found")
+        if await self._async_start_bank_auth(aspsp, errors):
+            return await self.async_step_authorize()
+        return None
+
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Confirm, then send the user to their bank again."""
-        assert self._client is not None
         errors: dict[str, str] = {}
         if user_input is not None:
-            try:
-                aspsps = await self._client.get_aspsps(self._data[CONF_COUNTRY])
-            except EnableBankingAuthError:
-                errors["base"] = "invalid_auth"
-            except EnableBankingError:
-                _LOGGER.exception("Error listing banks")
-                errors["base"] = "cannot_connect"
-            else:
-                aspsp = next(
-                    (a for a in aspsps if a["name"] == self._data[CONF_ASPSP]), None
-                )
-                if aspsp is None:
-                    return self.async_abort(reason="bank_not_found")
-                if await self._async_start_bank_auth(aspsp, errors):
-                    return await self.async_step_authorize()
+            if result := await self._async_reauthorize_same_bank(errors):
+                return result
 
         valid_until = dt_util.parse_datetime(self._data.get(CONF_VALID_UNTIL) or "")
         return self.async_show_form(
@@ -201,6 +217,63 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
                     else "?"
                 ),
             },
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change application credentials, optionally re-linking the bank."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            updates = {
+                CONF_APPLICATION_ID: user_input[CONF_APPLICATION_ID].strip(),
+                # Left empty: keep the current key (it is never shown back).
+                CONF_PRIVATE_KEY: (user_input.get(CONF_PRIVATE_KEY) or "").strip()
+                or entry.data[CONF_PRIVATE_KEY],
+                CONF_REDIRECT_URL: user_input[CONF_REDIRECT_URL].strip(),
+            }
+            self._data = {**entry.data, **updates}
+            self._client = EnableBankingClient(
+                async_get_clientsession(self.hass),
+                updates[CONF_APPLICATION_ID],
+                updates[CONF_PRIVATE_KEY],
+            )
+            if user_input.get(CONF_REAUTHORIZE):
+                if result := await self._async_reauthorize_same_bank(errors):
+                    return result
+            else:
+                try:
+                    await self._client.get_aspsps(self._data[CONF_COUNTRY])
+                except EnableBankingAuthError:
+                    errors["base"] = "invalid_auth"
+                except EnableBankingError:
+                    _LOGGER.exception("Error listing banks")
+                    errors["base"] = "cannot_connect"
+                else:
+                    return self.async_update_reload_and_abort(
+                        entry, data_updates=updates
+                    )
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_APPLICATION_ID, default=entry.data[CONF_APPLICATION_ID]
+                ): str,
+                vol.Optional(CONF_PRIVATE_KEY): TextSelector(
+                    TextSelectorConfig(multiline=True)
+                ),
+                vol.Required(
+                    CONF_REDIRECT_URL, default=entry.data[CONF_REDIRECT_URL]
+                ): TextSelector(TextSelectorConfig(type=TextSelectorType.URL)),
+                vol.Required(CONF_REAUTHORIZE, default=False): bool,
+            }
+        )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=schema,
+            description_placeholders={"bank": entry.data[CONF_ASPSP]},
             errors=errors,
         )
 
@@ -248,17 +321,33 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _async_create_from_session(
         self, session: dict[str, Any]
     ) -> ConfigFlowResult:
-        accounts = [
-            {
-                "uid": acc["uid"],
-                "id": acc.get("identification_hash") or acc["uid"],
-                "name": acc.get("name") or acc.get("product"),
-                "iban": (acc.get("account_id") or {}).get("iban"),
-                "currency": acc.get("currency"),
-            }
-            for acc in session.get("accounts", [])
-            if acc.get("uid")
-        ]
+        bank = self._data[CONF_ASPSP]
+        raw_accounts: list[dict[str, Any]] = session.get("accounts") or []
+        _LOGGER.info("%s returned %d account(s)", bank, len(raw_accounts))
+        accounts: list[dict[str, Any]] = []
+        skipped: list[str] = []
+        for acc in raw_accounts:
+            description = describe_account(acc)
+            if not acc.get("uid"):
+                # Enable Banking omits the uid when the bank doesn't allow
+                # querying balances/transactions of that account.
+                _LOGGER.warning(
+                    "Skipping account that %s does not allow querying: %s",
+                    bank,
+                    description,
+                )
+                skipped.append(description)
+                continue
+            _LOGGER.info("Adding account: %s", description)
+            accounts.append(
+                {
+                    "uid": acc["uid"],
+                    "id": acc.get("identification_hash") or acc["uid"],
+                    "name": acc.get("name") or acc.get("product"),
+                    "iban": (acc.get("account_id") or {}).get("iban"),
+                    "currency": acc.get("currency"),
+                }
+            )
         if not accounts:
             return self.async_abort(reason="no_accounts")
 
@@ -268,12 +357,22 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_VALID_UNTIL: (session.get("access") or {}).get("valid_until"),
         }
 
-        if self.source == SOURCE_REAUTH:
-            entry = self._get_reauth_entry()
+        if self.source in (SOURCE_REAUTH, SOURCE_RECONFIGURE):
+            entry = (
+                self._get_reauth_entry()
+                if self.source == SOURCE_REAUTH
+                else self._get_reconfigure_entry()
+            )
             old_ids = {acc["id"] for acc in entry.data[CONF_ACCOUNTS]}
             if not old_ids & {acc["id"] for acc in accounts}:
                 return self.async_abort(reason="wrong_accounts")
-            return self.async_update_reload_and_abort(entry, data_updates=session_data)
+            updates = {
+                key: self._data[key]
+                for key in (CONF_APPLICATION_ID, CONF_PRIVATE_KEY, CONF_REDIRECT_URL)
+            }
+            return self.async_update_reload_and_abort(
+                entry, data_updates={**updates, **session_data}
+            )
 
         await self.async_set_unique_id(
             "|".join(sorted(acc["id"] for acc in accounts))
@@ -281,4 +380,28 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         self._data.update(session_data)
-        return self.async_create_entry(title=self._data[CONF_ASPSP], data=self._data)
+        if skipped:
+            return self.async_create_entry(
+                title=bank,
+                data=self._data,
+                description="skipped_accounts",
+                description_placeholders={
+                    "accounts": "\n".join(f"- {s}" for s in skipped)
+                },
+            )
+        return self.async_create_entry(title=bank, data=self._data)
+
+
+def describe_account(acc: dict[str, Any]) -> str:
+    """Human-readable account summary for logs, with a masked identifier."""
+    account_id = acc.get("account_id") or {}
+    ident = account_id.get("iban") or (account_id.get("other") or {}).get(
+        "identification"
+    )
+    masked = f"…{ident[-4:]}" if ident else "no identifier"
+    name = acc.get("name") or acc.get("product") or "unnamed"
+    return (
+        f"{name} ({masked}, type={acc.get('cash_account_type')}, "
+        f"product={acc.get('product')}, usage={acc.get('usage')}, "
+        f"currency={acc.get('currency')})"
+    )

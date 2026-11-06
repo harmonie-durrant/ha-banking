@@ -32,6 +32,21 @@
       "reauth_confirm": {
         "title": "Renouveler l'accès bancaire",
         "description": "L'accès à vos comptes {bank} expire (ou a expiré) le {valid_until}. Validez pour obtenir un nouveau lien d'autorisation et approuver à nouveau l'accès auprès de votre banque. Vos capteurs et leur historique sont conservés."
+      },
+      "reconfigure": {
+        "title": "Reconfigurer {bank}",
+        "description": "Mettez à jour les informations de votre application Enable Banking. Vos capteurs et leur historique sont conservés.",
+        "data": {
+          "application_id": "ID de l'application",
+          "private_key": "Nouvelle clé privée (PEM)",
+          "redirect_url": "URL de redirection",
+          "reauthorize": "Autoriser à nouveau l'accès bancaire"
+        },
+        "data_description": {
+          "private_key": "Laissez vide pour conserver la clé actuelle.",
+          "redirect_url": "Doit correspondre exactement à une URL de redirection enregistrée sur l'application.",
+          "reauthorize": "Nécessaire si vous avez changé d'application. Met aussi à jour la liste des comptes, par exemple pour ajouter un compte manquant."
+        }
       }
     },
     "error": {
@@ -46,10 +61,14 @@
     },
     "abort": {
       "already_configured": "Ces comptes sont déjà configurés.",
-      "no_accounts": "La banque n'a renvoyé aucun compte accessible.",
+      "no_accounts": "La banque n'a renvoyé aucun compte lisible. Les comptes d'épargne (livrets) ne sont souvent pas disponibles via l'open banking.",
       "reauth_successful": "Accès bancaire renouvelé.",
       "wrong_accounts": "Les comptes autorisés ne correspondent pas à cette entrée. Connectez-vous avec le même client bancaire qu'auparavant.",
-      "bank_not_found": "Cette banque n'est plus disponible sur Enable Banking."
+      "bank_not_found": "Cette banque n'est plus disponible sur Enable Banking.",
+      "reconfigure_successful": "Configuration mise à jour."
+    },
+    "create_entry": {
+      "skipped_accounts": "Votre banque a renvoyé ces comptes mais n'autorise pas leur lecture, ils n'ont donc pas été ajoutés :\n{accounts}"
     }
   },
   "entity": {

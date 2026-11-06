@@ -49,6 +49,33 @@ One device per account is created, each with a **Balance** sensor.
   A week before expiry, Home Assistant asks you to re-authenticate (**Settings → Devices & services**):
   approve access at your bank again and paste the URL back. Your entities and history are kept.
 
+### Changing credentials or adding a missing account
+
+Open the integration in **Settings → Devices & services**, then **⋮ → Reconfigure** to change the
+application ID, private key or redirect URL. Tick **Authorize bank access again** to log in at your
+bank again: this also refreshes the list of accounts. Entities and history are kept.
+
+## Troubleshooting
+
+### An account is missing (e.g. livret a / savings account)
+
+Banks only have to expose *payment* accounts through open banking (PSD2/DSP2), so savings accounts
+such as Livret A, LEP or LDDS are often not returned at all. Some banks also let you pick which
+accounts to share on their consent screen.
+
+To see what your bank actually returns, enable debug logging, then **Reconfigure** with
+**Authorize bank access again** ticked (or add the integration again):
+
+```yaml
+logger:
+  logs:
+    custom_components.ha_banking: debug
+```
+
+The log then lists every account returned by the bank (`Adding account: …`), and warns about
+accounts returned without permission to read them (`Skipping account that … does not allow
+querying`). An account missing from both lists was not returned by the bank.
+
 ## Development
 
 ### Local test environment

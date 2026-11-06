@@ -319,3 +319,106 @@ async def test_reauth_wrong_accounts(hass: HomeAssistant, aioclient_mock) -> Non
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "wrong_accounts"
     assert entry.data["session_id"] == "s1"
+
+
+async def test_reconfigure_credentials_only(hass: HomeAssistant, aioclient_mock) -> None:
+    """Changing the application ID keeps the key when left empty."""
+    entry = add_entry(hass)
+    aioclient_mock.get(f"{API}/aspsps", json={"aspsps": [{"name": "Boursorama"}]})
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["step_id"] == "reconfigure"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"application_id": "app2", "redirect_url": "https://example.com/", "reauthorize": False},
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data["application_id"] == "app2"
+    assert entry.data["private_key"] == PEM
+    assert entry.data["redirect_url"] == "https://example.com/"
+    assert entry.data["session_id"] == "s1"
+
+
+async def test_reconfigure_invalid_key(hass: HomeAssistant) -> None:
+    """A broken new key is rejected and nothing is saved."""
+    entry = add_entry(hass)
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"application_id": "app", "private_key": "nope", "redirect_url": "https://x/", "reauthorize": False},
+    )
+    assert result["errors"] == {"base": "invalid_auth"}
+    assert entry.data["private_key"] == PEM
+
+
+async def test_reconfigure_reauthorize_adds_account(hass: HomeAssistant, aioclient_mock) -> None:
+    """Re-authorizing from reconfigure refreshes the account list."""
+    entry = add_entry(hass)
+    lep = {
+        "uid": "u3",
+        "identification_hash": "h3",
+        "name": "LEP",
+        "account_id": {"iban": "FR7600000000000003"},
+        "cash_account_type": "SVGS",
+        "currency": "EUR",
+    }
+    new_session = {**SESSION, "session_id": "s3", "accounts": [*SESSION["accounts"], lep]}
+    mock_reauth_api(aioclient_mock, new_session)
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+    aioclient_mock.get(f"{API}/accounts/u3/balances", json=BALANCES)
+
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"application_id": "app", "redirect_url": "https://enablebanking.com/", "reauthorize": True},
+    )
+    assert result["step_id"] == "authorize", result
+    state = hass.config_entries.flow._progress[result["flow_id"]]._state
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"callback_url": f"https://enablebanking.com/?state={state}&code=c"}
+    )
+    await hass.async_block_till_done()
+
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data["session_id"] == "s3"
+    assert [a["id"] for a in entry.data["accounts"]] == ["h1", "h3"]
+    assert hass.states.get("sensor.lep_balance").state == "1234.56"
+
+
+async def test_skipped_accounts_are_reported(
+    hass: HomeAssistant, aioclient_mock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Accounts without uid are logged and listed on the success screen."""
+    lep = {
+        "identification_hash": "h3",
+        "name": "LEP",
+        "account_id": {"iban": "FR7600000000000003"},
+        "cash_account_type": "SVGS",
+        "currency": "EUR",
+    }
+    aioclient_mock.get(f"{API}/aspsps", json={"aspsps": [{"name": "Boursorama", "country": "FR"}]})
+    aioclient_mock.post(f"{API}/auth", json={"url": "https://bank.example/auth"})
+    aioclient_mock.post(f"{API}/sessions", json={**SESSION, "accounts": [*SESSION["accounts"], lep]})
+    aioclient_mock.get(BALANCES_URL, json=BALANCES)
+
+    r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    r = await hass.config_entries.flow.async_configure(
+        r["flow_id"],
+        {"application_id": "app", "private_key": PEM, "redirect_url": "https://enablebanking.com/", "country": "FR"},
+    )
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {"aspsp": "Boursorama"})
+    state = hass.config_entries.flow._progress[r["flow_id"]]._state
+    r = await hass.config_entries.flow.async_configure(
+        r["flow_id"], {"callback_url": f"https://enablebanking.com/?state={state}&code=c"}
+    )
+    await hass.async_block_till_done()
+
+    assert r["type"] is FlowResultType.CREATE_ENTRY
+    assert r["description"] == "skipped_accounts"
+    assert "LEP (…0003, type=SVGS" in r["description_placeholders"]["accounts"]
+    assert "does not allow querying: LEP" in caplog.text
+    assert "FR7600000000000003" not in caplog.text
+    assert [a["id"] for a in r["data"]["accounts"]] == ["h1"]

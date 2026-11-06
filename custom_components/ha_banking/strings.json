@@ -32,6 +32,21 @@
       "reauth_confirm": {
         "title": "Renew bank access",
         "description": "Access to your {bank} accounts expires (or expired) on {valid_until}. Submit to get a new authorization link and approve access at your bank again. Your sensors and history are kept."
+      },
+      "reconfigure": {
+        "title": "Reconfigure {bank}",
+        "description": "Update your Enable Banking application details. Your sensors and history are kept.",
+        "data": {
+          "application_id": "Application ID",
+          "private_key": "New private key (PEM)",
+          "redirect_url": "Redirect URL",
+          "reauthorize": "Authorize bank access again"
+        },
+        "data_description": {
+          "private_key": "Leave empty to keep the current key.",
+          "redirect_url": "Must exactly match a redirect URL registered on the application.",
+          "reauthorize": "Required if you changed application. Also refreshes the list of accounts, e.g. to add an account that was missing."
+        }
       }
     },
     "error": {
@@ -46,10 +61,14 @@
     },
     "abort": {
       "already_configured": "These accounts are already configured.",
-      "no_accounts": "The bank did not return any accessible account.",
+      "no_accounts": "The bank did not return any account that can be read. Savings accounts (e.g. livrets) are often not available through open banking.",
       "reauth_successful": "Bank access renewed.",
       "wrong_accounts": "The authorized accounts don't match this entry. Log in with the same bank customer as before.",
-      "bank_not_found": "This bank is no longer available on Enable Banking."
+      "bank_not_found": "This bank is no longer available on Enable Banking.",
+      "reconfigure_successful": "Configuration updated."
+    },
+    "create_entry": {
+      "skipped_accounts": "Your bank returned these accounts but does not allow reading them, so they were not added:\n{accounts}"
     }
   },
   "entity": {
