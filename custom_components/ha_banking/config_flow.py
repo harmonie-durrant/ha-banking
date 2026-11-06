@@ -42,6 +42,8 @@ from .const import (
     CONF_ASPSP,
     CONF_BALANCE_TYPE,
     CONF_COUNTRY,
+    CONF_HISTORY_PENDING,
+    CONF_IMPORT_HISTORY,
     CONF_PRIVATE_KEY,
     CONF_REDIRECT_URL,
     CONF_SESSION_ID,
@@ -374,6 +376,7 @@ class HaBankingConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_SESSION_ID: session["session_id"],
             CONF_ACCOUNTS: accounts,
             CONF_VALID_UNTIL: (session.get("access") or {}).get("valid_until"),
+            CONF_HISTORY_PENDING: True,
         }
 
         if self.source in (SOURCE_REAUTH, SOURCE_RECONFIGURE):
@@ -445,6 +448,7 @@ class HaBankingOptionsFlow(OptionsFlowWithReload):
                         translation_key=CONF_BALANCE_TYPE,
                     )
                 ),
+                vol.Required(CONF_IMPORT_HISTORY, default=True): bool,
             }
         )
         return self.async_show_form(

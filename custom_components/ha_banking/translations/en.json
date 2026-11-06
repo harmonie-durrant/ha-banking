@@ -93,11 +93,13 @@
         "description": "Banks usually allow only about 4 automatic requests per day: refreshing more often than every 6 hours may get requests refused (the last balance then stays displayed).",
         "data": {
           "update_interval": "Refresh interval",
-          "balance_type": "Main balance"
+          "balance_type": "Main balance",
+          "import_history": "Import history"
         },
         "data_description": {
           "update_interval": "Hours between automatic refreshes.",
-          "balance_type": "Which balance the Balance sensor shows. The types your bank returns are listed in the sensor's available_balance_types attribute. Falls back to automatic if the bank doesn't return the chosen type."
+          "balance_type": "Which balance the Balance sensor shows. The types your bank returns are listed in the sensor's available_balance_types attribute. Falls back to automatic if the bank doesn't return the chosen type.",
+          "import_history": "After each bank authorization, rebuild up to 6 months of daily balances from your transactions and add them to the Balance sensor's history."
         }
       }
     }

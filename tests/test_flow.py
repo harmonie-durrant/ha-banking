@@ -466,12 +466,12 @@ async def test_options_change_balance_type_without_bank_call(
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["step_id"] == "init"
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"update_interval": 12, "balance_type": "xpcd"}
+        result["flow_id"], {"update_interval": 12, "balance_type": "xpcd", "import_history": True}
     )
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options == {"update_interval": 12, "balance_type": "xpcd"}
+    assert entry.options == {"update_interval": 12, "balance_type": "xpcd", "import_history": True}
     assert entry.runtime_data.update_interval == timedelta(hours=12)
     assert hass.states.get(BALANCE_ENTITY).state == "42.00"
     assert balance_calls(aioclient_mock) == 0

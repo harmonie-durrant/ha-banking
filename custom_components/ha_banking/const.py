@@ -23,6 +23,15 @@ DEFAULT_REDIRECT_URL: Final = "https://enablebanking.com/"
 CONF_UPDATE_INTERVAL: Final = "update_interval"  # hours
 CONF_BALANCE_TYPE: Final = "balance_type"
 BALANCE_TYPE_AUTO: Final = "auto"
+CONF_IMPORT_HISTORY: Final = "import_history"
+
+# Set in entry data after each bank authorization; cleared once the history
+# import has run. Banks often only return long history right after the user
+# authenticated, so the import runs then rather than on demand.
+CONF_HISTORY_PENDING: Final = "history_pending"
+HISTORY_DAYS: Final = 180
+HISTORY_FALLBACK_DAYS: Final = 89
+MAX_TRANSACTION_PAGES: Final = 50
 
 # Banks commonly allow ~4 unattended (background) requests per day under PSD2.
 DEFAULT_UPDATE_HOURS: Final = 6

@@ -47,6 +47,25 @@ Open the integration in **Settings → Devices & services**, then **Configure**:
 - **Main balance**: which balance type the Balance sensor shows. **Automatic** picks, in order,
   `CLBD` (booked), `ITBD`, `XPCD`, `ITAV`, `CLAV`, `OPBD`, `OPAV`. The types your bank actually
   returns are listed in the sensor's `available_balance_types` attribute.
+- **Import history** (on by default): see below.
+
+### Balance history
+
+Right after you authorize access at your bank (first setup, renewal, or **Reconfigure** with
+**Authorize bank access again**), the integration fetches up to 6 months of booked transactions
+and rebuilds one end-of-day balance per day, starting from the current booked balance. These are
+added to the Balance sensor's long-term statistics, so the history graph shows them as if they had
+been recorded all along.
+
+- It runs once per authorization, in the background. Many banks only return more than 90 days of
+  transactions shortly after you log in; if 6 months is refused, 89 days are requested instead.
+- Only days before anything Home Assistant has already recorded are imported, so existing history
+  is never overwritten.
+- It's a daily value rebuilt from booked transactions, so it can differ slightly from what your
+  bank showed at the time (pending operations, booking vs value date). The history starts at the
+  oldest transaction your bank returned.
+- Already set up before this feature? Use **Reconfigure** with **Authorize bank access again**
+  ticked to import your history.
 
 ### Notes
 

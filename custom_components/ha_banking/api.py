@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 import json
 import time
 from typing import Any
@@ -164,3 +164,22 @@ class EnableBankingClient:
         """Return the balances of an account."""
         data = await self._request("GET", f"/accounts/{account_uid}/balances")
         return data.get("balances", [])
+
+    async def get_transactions(
+        self, account_uid: str, date_from: date, max_pages: int
+    ) -> list[dict[str, Any]]:
+        """Return booked transactions since date_from, following all pages."""
+        transactions: list[dict[str, Any]] = []
+        params: dict[str, str] = {
+            "date_from": date_from.isoformat(),
+            "transaction_status": "BOOK",
+        }
+        for _ in range(max_pages):
+            data = await self._request(
+                "GET", f"/accounts/{account_uid}/transactions", params=params
+            )
+            transactions.extend(data.get("transactions") or [])
+            if not (key := data.get("continuation_key")):
+                break
+            params = {**params, "continuation_key": key}
+        return transactions

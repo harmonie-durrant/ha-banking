@@ -93,11 +93,13 @@
         "description": "Les banques n'autorisent en général qu'environ 4 requêtes automatiques par jour : actualiser plus souvent que toutes les 6 heures peut entraîner des refus (le dernier solde reste alors affiché).",
         "data": {
           "update_interval": "Intervalle d'actualisation",
-          "balance_type": "Solde principal"
+          "balance_type": "Solde principal",
+          "import_history": "Importer l'historique"
         },
         "data_description": {
           "update_interval": "Heures entre deux actualisations automatiques.",
-          "balance_type": "Le solde affiché par le capteur Solde. Les types renvoyés par votre banque sont listés dans l'attribut available_balance_types du capteur. Repasse en automatique si la banque ne renvoie pas le type choisi."
+          "balance_type": "Le solde affiché par le capteur Solde. Les types renvoyés par votre banque sont listés dans l'attribut available_balance_types du capteur. Repasse en automatique si la banque ne renvoie pas le type choisi.",
+          "import_history": "Après chaque autorisation bancaire, reconstitue jusqu'à 6 mois de soldes quotidiens à partir de vos opérations et les ajoute à l'historique du capteur Solde."
         }
       }
     }

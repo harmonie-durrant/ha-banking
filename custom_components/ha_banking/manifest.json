@@ -1,6 +1,9 @@
 {
   "domain": "ha_banking",
   "name": "HA Banking",
+  "after_dependencies": [
+    "recorder"
+  ],
   "categories": [
     "finance"
   ],
